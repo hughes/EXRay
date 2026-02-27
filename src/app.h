@@ -1,0 +1,63 @@
+#pragma once
+
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#include "histogram.h"
+#include "image.h"
+#include "renderer.h"
+#include "timing.h"
+#include "viewport.h"
+#include "window.h"
+
+#include <atomic>
+#include <string>
+#include <thread>
+#include <vector>
+#include <windows.h>
+
+class App
+{
+  public:
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing);
+    int Run();
+
+  private:
+    void OnCommand(int commandId);
+    void OnResize(int width, int height);
+    void OpenFileDialog();
+    void LoadFile(const std::wstring& path);
+    void Render();
+    void UpdateImageStatusText();
+    HistogramCB BuildHistogramCB() const;
+
+    // Recent files (MRU)
+    void AddToRecentFiles(const std::wstring& path);
+    void LoadRecentFiles();
+    void SaveRecentFiles();
+    std::wstring GetRecentFilesPath();
+
+    Window m_window;
+    Renderer m_renderer;
+    ImageData m_image;
+    ViewportState m_viewport;
+    HINSTANCE m_hInstance = nullptr;
+    StartupTiming* m_timing = nullptr;
+    bool m_needsRedraw = true;
+
+    // Histogram state
+    HistogramData m_histogram;
+    bool m_showHistogram = true;
+    int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
+
+    // Recent files
+    std::vector<std::wstring> m_recentFiles;
+    static constexpr int kMaxRecentFiles = 10;
+
+    // Parallel loading state
+    std::thread m_loadThread;
+    ImageData m_pendingImage;
+    std::string m_loadError;
+    std::atomic<bool> m_loadComplete{false};
+};

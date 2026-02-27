@@ -1,0 +1,39 @@
+load("@rules_cc//cc:defs.bzl", "cc_binary")
+
+cc_binary(
+    name = "seeexr",
+    srcs = [
+        "src/main.cpp",
+        "src/app.h",
+        "src/app.cpp",
+        "src/window.h",
+        "src/window.cpp",
+        "src/renderer.h",
+        "src/renderer.cpp",
+        "src/image.h",
+        "src/image.cpp",
+        "src/histogram.h",
+        "src/histogram.cpp",
+        "src/viewport.h",
+        "src/viewport.cpp",
+        "src/timing.h",
+        "src/resource.h",
+    ],
+    includes = ["src"],
+    deps = [
+        "@openexr//:OpenEXR",
+    ],
+    linkopts = [
+        "-SUBSYSTEM:WINDOWS",
+        "-DEFAULTLIB:user32.lib",
+        "-DEFAULTLIB:gdi32.lib",
+        "-DEFAULTLIB:comdlg32.lib",
+        "-DEFAULTLIB:shell32.lib",
+        "-DEFAULTLIB:d3d11.lib",
+        "-DEFAULTLIB:dxgi.lib",
+        "-DEFAULTLIB:d3dcompiler.lib",
+        "-DEFAULTLIB:dxguid.lib",
+        "-DEFAULTLIB:comctl32.lib",
+        "-DEFAULTLIB:ole32.lib",
+    ],
+)

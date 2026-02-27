@@ -1,0 +1,398 @@
+#ifndef UNICODE
+#define UNICODE
+#endif
+
+#include "window.h"
+
+#include "resource.h"
+
+#include <shellapi.h>
+#include <windowsx.h>
+
+static const wchar_t* const kClassName = L"SeeEXR_Window";
+static const wchar_t* const kRenderClassName = L"SeeEXR_RenderArea";
+
+static HMENU CreateAppMenu()
+{
+    HMENU menuBar = CreateMenu();
+
+    HMENU fileMenu = CreatePopupMenu();
+    AppendMenuW(fileMenu, MF_STRING, IDM_FILE_OPEN, L"&Open...\tCtrl+O");
+    HMENU recentMenu = CreatePopupMenu();
+    AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, 0, L"(empty)");
+    AppendMenuW(fileMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu), L"Open &Recent");
+    AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(fileMenu, MF_STRING, IDM_FILE_EXIT, L"E&xit\tAlt+F4");
+    AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"&File");
+
+    HMENU viewMenu = CreatePopupMenu();
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FIT, L"&Fit to Window\tCtrl+0");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_ACTUAL, L"&Actual Size\tCtrl+1");
+    AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HISTOGRAM, L"&Histogram\tH");
+    AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FULLSCREEN, L"&Fullscreen\tF11");
+    AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
+
+    HMENU helpMenu = CreatePopupMenu();
+    AppendMenuW(helpMenu, MF_STRING, IDM_HELP_ABOUT, L"&About SeeEXR");
+    AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu), L"&Help");
+
+    return menuBar;
+}
+
+static HACCEL CreateAppAccelerators()
+{
+    ACCEL accels[] = {
+        {FVIRTKEY | FCONTROL, 'O', IDM_FILE_OPEN},
+        {FVIRTKEY | FCONTROL, '0', IDM_VIEW_FIT},
+        {FVIRTKEY | FCONTROL, '1', IDM_VIEW_ACTUAL},
+    };
+    return CreateAcceleratorTableW(accels, _countof(accels));
+}
+
+bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand, ResizeHandler onResize)
+{
+    m_onCommand = std::move(onCommand);
+    m_onResize = std::move(onResize);
+
+    // Register main window class
+    WNDCLASSEXW wc = {};
+    wc.cbSize = sizeof(wc);
+    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.lpfnWndProc = WndProc;
+    wc.hInstance = hInstance;
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.hbrBackground = nullptr;
+    wc.lpszClassName = kClassName;
+
+    if (!RegisterClassExW(&wc))
+        return false;
+
+    // Register render area child window class
+    WNDCLASSEXW rcWc = {};
+    rcWc.cbSize = sizeof(rcWc);
+    rcWc.style = CS_HREDRAW | CS_VREDRAW;
+    rcWc.lpfnWndProc = RenderAreaProc;
+    rcWc.hInstance = hInstance;
+    rcWc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    rcWc.hbrBackground = nullptr;
+    rcWc.lpszClassName = kRenderClassName;
+    RegisterClassExW(&rcWc);
+
+    HMENU menu = CreateAppMenu();
+
+    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kClassName, L"SeeEXR", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
+                             CW_USEDEFAULT, 1280, 720, nullptr, menu, hInstance, this);
+
+    if (!m_hwnd)
+        return false;
+
+    // Create status bar
+    INITCOMMONCONTROLSEX icex = {sizeof(icex), ICC_BAR_CLASSES};
+    InitCommonControlsEx(&icex);
+
+    m_statusBar = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
+                                  m_hwnd, nullptr, hInstance, nullptr);
+
+    // 3 parts: pixel coords | RGBA values | image info
+    int parts[] = {120, 420, -1};
+    SendMessageW(m_statusBar, SB_SETPARTS, 3, reinterpret_cast<LPARAM>(parts));
+
+    // Create render area child window — D3D11 swapchain targets this, not the main window
+    m_renderArea = CreateWindowExW(0, kRenderClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
+                                   hInstance, this);
+
+    LayoutChildren();
+
+    m_accel = CreateAppAccelerators();
+
+    ShowWindow(m_hwnd, nCmdShow);
+    UpdateWindow(m_hwnd);
+    SetFocus(m_renderArea);
+
+    return true;
+}
+
+void Window::SetTitle(const wchar_t* title)
+{
+    if (m_hwnd)
+        SetWindowTextW(m_hwnd, title);
+}
+
+void Window::GetClientSize(int& width, int& height) const
+{
+    RECT rc;
+    GetClientRect(m_renderArea, &rc);
+    width = rc.right - rc.left;
+    height = rc.bottom - rc.top;
+}
+
+void Window::LayoutChildren()
+{
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    int totalW = rc.right - rc.left;
+    int totalH = rc.bottom - rc.top;
+
+    if (m_statusBar)
+        SendMessageW(m_statusBar, WM_SIZE, 0, 0);
+
+    int sbH = GetStatusBarHeight();
+    int renderH = totalH - sbH;
+    if (renderH < 0)
+        renderH = 0;
+
+    if (m_renderArea)
+        MoveWindow(m_renderArea, 0, 0, totalW, renderH, TRUE);
+}
+
+int Window::GetStatusBarHeight() const
+{
+    if (!m_statusBar)
+        return 0;
+    RECT rc;
+    GetWindowRect(m_statusBar, &rc);
+    return rc.bottom - rc.top;
+}
+
+void Window::SetStatusText(int part, const wchar_t* text)
+{
+    if (m_statusBar)
+        SendMessageW(m_statusBar, SB_SETTEXTW, part, reinterpret_cast<LPARAM>(text));
+}
+
+void Window::ToggleFullscreen()
+{
+    if (!m_hwnd)
+        return;
+
+    if (!m_isFullscreen)
+    {
+        // Save current placement and menu for restore
+        m_savedPlacement.length = sizeof(m_savedPlacement);
+        GetWindowPlacement(m_hwnd, &m_savedPlacement);
+        m_savedMenu = GetMenu(m_hwnd);
+
+        // Remove window chrome, menu bar, and cover the monitor
+        LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
+        SetWindowLongW(m_hwnd, GWL_STYLE, style & ~WS_OVERLAPPEDWINDOW);
+        SetMenu(m_hwnd, nullptr);
+
+        HMONITOR mon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTOPRIMARY);
+        MONITORINFO mi = {sizeof(mi)};
+        GetMonitorInfoW(mon, &mi);
+
+        SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
+                     mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
+                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+
+        // Hide status bar in fullscreen
+        if (m_statusBar)
+            ShowWindow(m_statusBar, SW_HIDE);
+
+        m_isFullscreen = true;
+    }
+    else
+    {
+        // Restore window chrome and menu bar
+        LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
+        SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+        SetMenu(m_hwnd, m_savedMenu);
+        SetWindowPlacement(m_hwnd, &m_savedPlacement);
+        SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
+
+        // Show status bar again
+        if (m_statusBar)
+            ShowWindow(m_statusBar, SW_SHOW);
+
+        m_isFullscreen = false;
+    }
+}
+
+void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
+{
+    if (!m_hwnd)
+        return;
+
+    // Find the File menu (position 0), then the "Open Recent" submenu (position 1)
+    HMENU menuBar = GetMenu(m_hwnd);
+    HMENU fileMenu = GetSubMenu(menuBar, 0);
+    HMENU recentMenu = GetSubMenu(fileMenu, 1);
+
+    if (!recentMenu)
+        return;
+
+    // Clear existing items
+    while (GetMenuItemCount(recentMenu) > 0)
+        DeleteMenu(recentMenu, 0, MF_BYPOSITION);
+
+    if (paths.empty())
+    {
+        AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, 0, L"(empty)");
+    }
+    else
+    {
+        for (size_t i = 0; i < paths.size() && i < 10; ++i)
+        {
+            // Show just the filename for readability
+            const wchar_t* filename = wcsrchr(paths[i].c_str(), L'\\');
+            if (!filename)
+                filename = wcsrchr(paths[i].c_str(), L'/');
+            filename = filename ? filename + 1 : paths[i].c_str();
+
+            wchar_t label[MAX_PATH + 16];
+            swprintf_s(label, L"&%d  %s", static_cast<int>(i + 1), filename);
+            AppendMenuW(recentMenu, MF_STRING, IDM_FILE_RECENT_BASE + static_cast<UINT>(i), label);
+        }
+    }
+}
+
+LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    Window* self = nullptr;
+
+    if (msg == WM_NCCREATE)
+    {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        self = static_cast<Window*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    }
+    else
+    {
+        self = reinterpret_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    }
+
+    if (!self)
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    switch (msg)
+    {
+    case WM_COMMAND:
+        if (self->m_onCommand)
+            self->m_onCommand(LOWORD(wParam));
+        return 0;
+
+    case WM_SIZE:
+        self->LayoutChildren();
+        if (wParam != SIZE_MINIMIZED && self->m_onResize)
+        {
+            int w, h;
+            self->GetClientSize(w, h);
+            if (w > 0 && h > 0)
+                self->m_onResize(w, h);
+        }
+        return 0;
+
+    case WM_DROPFILES:
+    {
+        HDROP hDrop = reinterpret_cast<HDROP>(wParam);
+        wchar_t path[MAX_PATH];
+        DragQueryFileW(hDrop, 0, path, MAX_PATH);
+        DragFinish(hDrop);
+        if (self->onDrop)
+            self->onDrop(path);
+        return 0;
+    }
+
+    case WM_ERASEBKGND:
+        return 1;
+
+    case WM_GETMINMAXINFO:
+    {
+        auto* mmi = reinterpret_cast<MINMAXINFO*>(lParam);
+        mmi->ptMinTrackSize.x = 400;
+        mmi->ptMinTrackSize.y = 300;
+        return 0;
+    }
+
+    case WM_DESTROY:
+        PostQuitMessage(0);
+        return 0;
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
+{
+    Window* self = nullptr;
+
+    if (msg == WM_NCCREATE)
+    {
+        auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+        self = static_cast<Window*>(cs->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    }
+    else
+    {
+        self = reinterpret_cast<Window*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    }
+
+    if (!self)
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+    switch (msg)
+    {
+    case WM_LBUTTONDOWN:
+        SetFocus(hwnd);
+        return 0;
+
+    case WM_MOUSEWHEEL:
+    {
+        POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        ScreenToClient(hwnd, &pt);
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        bool ctrl = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
+        if (self->onMouseWheel)
+            self->onMouseWheel(pt.x, pt.y, delta, ctrl);
+        return 0;
+    }
+
+    case WM_MOUSEMOVE:
+    {
+        int x = GET_X_LPARAM(lParam);
+        int y = GET_Y_LPARAM(lParam);
+
+        if (self->m_middleDragging)
+        {
+            int dx = x - self->m_lastDragX;
+            int dy = y - self->m_lastDragY;
+            self->m_lastDragX = x;
+            self->m_lastDragY = y;
+            if (self->onMiddleButton)
+                self->onMiddleButton(dx, dy, true);
+        }
+
+        if (self->onMouseMove)
+            self->onMouseMove(x, y);
+        return 0;
+    }
+
+    case WM_MBUTTONDOWN:
+    {
+        self->m_middleDragging = true;
+        self->m_lastDragX = GET_X_LPARAM(lParam);
+        self->m_lastDragY = GET_Y_LPARAM(lParam);
+        SetCapture(hwnd);
+        return 0;
+    }
+
+    case WM_MBUTTONUP:
+    {
+        self->m_middleDragging = false;
+        ReleaseCapture();
+        return 0;
+    }
+
+    case WM_KEYDOWN:
+        if (self->onKeyDown)
+            self->onKeyDown(static_cast<int>(wParam));
+        return 0;
+
+    case WM_ERASEBKGND:
+        return 1;
+    }
+
+    return DefWindowProcW(hwnd, msg, wParam, lParam);
+}

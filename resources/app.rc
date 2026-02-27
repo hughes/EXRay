@@ -1,0 +1,28 @@
+#include "src/resource.h"
+#include <windows.h>
+
+IDR_MAINMENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&Open...\tCtrl+O",       IDM_FILE_OPEN
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit\tAlt+F4",          IDM_FILE_EXIT
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "&Fit to Window\tCtrl+0", IDM_VIEW_FIT
+        MENUITEM "&Actual Size\tCtrl+1",   IDM_VIEW_ACTUAL
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About SeeEXR",          IDM_HELP_ABOUT
+    END
+END
+
+IDR_ACCELERATORS ACCELERATORS
+BEGIN
+    "O",  IDM_FILE_OPEN,   VIRTKEY, CONTROL
+    "0",  IDM_VIEW_FIT,    VIRTKEY, CONTROL
+    "1",  IDM_VIEW_ACTUAL, VIRTKEY, CONTROL
+END

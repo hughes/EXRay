@@ -1,0 +1,18 @@
+# C++ standard
+build --cxxopt=/std:c++20
+build --host_cxxopt=/std:c++20
+build --features=no_default_cpp_std
+
+# Windows 10+ target (enables DPI awareness APIs, etc.)
+build --copt=/DWINVER=0x0A00
+build --copt=/D_WIN32_WINNT=0x0A00
+build --copt=/DUNICODE
+build --copt=/D_UNICODE
+
+# Detailed error output
+build --verbose_failures
+
+# Debug config: full symbols, no optimization
+# -c dbg already provides /Z7 (obj-embedded debug info) and /DEBUG linker flag.
+# Do NOT use /Zi here — it creates a shared PDB that breaks parallel compilation.
+build:dbg -c dbg

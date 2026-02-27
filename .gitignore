@@ -1,0 +1,25 @@
+# Bazel
+bazel-bin/
+bazel-out/
+bazel-seeEXR/
+bazel-testlogs/
+/bazel-*
+
+# IDE
+.vscode/
+*.swp
+*.swo
+*~
+
+# Build artifacts
+*.obj
+*.pdb
+*.exe
+*.ilk
+*.lib
+*.exp
+
+# OS
+Thumbs.db
+Desktop.ini
+.DS_Store
