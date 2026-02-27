@@ -18,6 +18,7 @@ static HMENU CreateAppMenu()
 
     HMENU fileMenu = CreatePopupMenu();
     AppendMenuW(fileMenu, MF_STRING, IDM_FILE_OPEN, L"&Open...\tCtrl+O");
+    AppendMenuW(fileMenu, MF_STRING, IDM_FILE_RELOAD, L"&Reload\tCtrl+R");
     HMENU recentMenu = CreatePopupMenu();
     AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, 0, L"(empty)");
     AppendMenuW(fileMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu), L"Open &Recent");
@@ -30,6 +31,16 @@ static HMENU CreateAppMenu()
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_ACTUAL, L"&Actual Size\tCtrl+1");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HISTOGRAM, L"&Histogram\tH");
+
+    HMENU channelMenu = CreatePopupMenu();
+    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_ALL, L"&All");
+    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_LUM, L"&Luminance");
+    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_RED, L"&Red");
+    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_GREEN, L"&Green");
+    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_BLUE, L"&Blue");
+    AppendMenuW(viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(channelMenu), L"Histogram &Channel\tC");
+
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GRID, L"Pixel &Grid\tG");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FULLSCREEN, L"&Fullscreen\tF11");
     AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
@@ -45,6 +56,7 @@ static HACCEL CreateAppAccelerators()
 {
     ACCEL accels[] = {
         {FVIRTKEY | FCONTROL, 'O', IDM_FILE_OPEN},
+        {FVIRTKEY | FCONTROL, 'R', IDM_FILE_RELOAD},
         {FVIRTKEY | FCONTROL, '0', IDM_VIEW_FIT},
         {FVIRTKEY | FCONTROL, '1', IDM_VIEW_ACTUAL},
     };
@@ -215,10 +227,10 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
     if (!m_hwnd)
         return;
 
-    // Find the File menu (position 0), then the "Open Recent" submenu (position 1)
+    // Find the File menu (position 0), then the "Open Recent" submenu (position 2)
     HMENU menuBar = GetMenu(m_hwnd);
     HMENU fileMenu = GetSubMenu(menuBar, 0);
-    HMENU recentMenu = GetSubMenu(fileMenu, 1);
+    HMENU recentMenu = GetSubMenu(fileMenu, 2);
 
     if (!recentMenu)
         return;
@@ -246,6 +258,29 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
             AppendMenuW(recentMenu, MF_STRING, IDM_FILE_RECENT_BASE + static_cast<UINT>(i), label);
         }
     }
+}
+
+void Window::UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid)
+{
+    HMENU menu = GetMenu(m_hwnd);
+    if (!menu)
+        menu = m_savedMenu; // fullscreen: menu is detached
+    if (!menu)
+        return;
+
+    CheckMenuItem(menu, IDM_VIEW_HISTOGRAM, MF_BYCOMMAND | (showHistogram ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(menu, IDM_VIEW_GRID, MF_BYCOMMAND | (showGrid ? MF_CHECKED : MF_UNCHECKED));
+
+    // Radio check for histogram channel (0=Lum,1=R,2=G,3=B,4=All)
+    static const UINT channelIds[] = {IDM_VIEW_CHAN_LUM, IDM_VIEW_CHAN_RED, IDM_VIEW_CHAN_GREEN, IDM_VIEW_CHAN_BLUE,
+                                      IDM_VIEW_CHAN_ALL};
+    UINT activeId = (histogramChannel >= 0 && histogramChannel <= 4) ? channelIds[histogramChannel] : IDM_VIEW_CHAN_ALL;
+    CheckMenuRadioItem(menu, IDM_VIEW_CHAN_LUM, IDM_VIEW_CHAN_ALL, activeId, MF_BYCOMMAND);
+
+    // Gray out channel items when histogram is off
+    UINT enable = showHistogram ? MF_ENABLED : MF_GRAYED;
+    for (UINT id : channelIds)
+        EnableMenuItem(menu, id, MF_BYCOMMAND | enable);
 }
 
 LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)

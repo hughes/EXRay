@@ -33,10 +33,15 @@ class App
     HistogramCB BuildHistogramCB() const;
 
     // Recent files (MRU)
-    void AddToRecentFiles(const std::wstring& path);
+    void AddToRecentFiles(std::wstring path);
     void LoadRecentFiles();
     void SaveRecentFiles();
     std::wstring GetRecentFilesPath();
+
+    // Preferences
+    void LoadPreferences();
+    void SavePreferences();
+    std::wstring GetPreferencesPath();
 
     Window m_window;
     Renderer m_renderer;
@@ -50,6 +55,12 @@ class App
     HistogramData m_histogram;
     bool m_showHistogram = true;
     int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
+
+    // Grid state
+    bool m_showGrid = true;
+
+    // Current file (for reload)
+    std::wstring m_currentFile;
 
     // Recent files
     std::vector<std::wstring> m_recentFiles;

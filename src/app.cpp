@@ -122,6 +122,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         else if (vk == 'H')
         {
             m_showHistogram = !m_showHistogram;
+            SavePreferences();
+            m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
             m_needsRedraw = true;
         }
         else if (vk == 'C')
@@ -129,8 +131,17 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             if (m_showHistogram)
             {
                 m_histogramChannel = (m_histogramChannel + 1) % 5;
+                SavePreferences();
+                m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
                 m_needsRedraw = true;
             }
+        }
+        else if (vk == 'G')
+        {
+            m_showGrid = !m_showGrid;
+            SavePreferences();
+            m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+            m_needsRedraw = true;
         }
         else if (vk == VK_F11)
         {
@@ -158,6 +169,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     m_timing->d3dReady = StartupTiming::Now();
 
     LoadRecentFiles();
+    LoadPreferences();
+    m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
 
     // Propagate HDR state to viewport
     if (m_renderer.IsHDREnabled())
@@ -189,6 +202,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.imageWidth = static_cast<float>(m_image.width);
             m_viewport.imageHeight = static_cast<float>(m_image.height);
             m_viewport.FitToWindow();
+
+            m_currentFile = cmdLinePath;
 
             wchar_t title[MAX_PATH + 16];
             swprintf_s(title, L"SeeEXR - %s", cmdLinePath.c_str());
@@ -251,7 +266,9 @@ void App::Render()
 
     if (m_renderer.HasImage())
     {
-        m_renderer.RenderImage(m_viewport.ToViewportCB());
+        ViewportCB vp = m_viewport.ToViewportCB();
+        vp.showGrid = m_showGrid ? 1 : 0;
+        m_renderer.RenderImage(vp);
 
         if (m_showHistogram && m_histogram.isValid)
         {
@@ -279,6 +296,11 @@ void App::OnCommand(int commandId)
         OpenFileDialog();
         break;
 
+    case IDM_FILE_RELOAD:
+        if (!m_currentFile.empty())
+            LoadFile(m_currentFile);
+        break;
+
     case IDM_FILE_EXIT:
         DestroyWindow(m_window.GetHwnd());
         break;
@@ -295,6 +317,26 @@ void App::OnCommand(int commandId)
 
     case IDM_VIEW_HISTOGRAM:
         m_showHistogram = !m_showHistogram;
+        SavePreferences();
+        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+        m_needsRedraw = true;
+        break;
+
+    case IDM_VIEW_GRID:
+        m_showGrid = !m_showGrid;
+        SavePreferences();
+        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+        m_needsRedraw = true;
+        break;
+
+    case IDM_VIEW_CHAN_LUM:
+    case IDM_VIEW_CHAN_RED:
+    case IDM_VIEW_CHAN_GREEN:
+    case IDM_VIEW_CHAN_BLUE:
+    case IDM_VIEW_CHAN_ALL:
+        m_histogramChannel = commandId - IDM_VIEW_CHAN_LUM;
+        SavePreferences();
+        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
         m_needsRedraw = true;
         break;
 
@@ -333,7 +375,10 @@ void App::LoadFile(const std::wstring& path)
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = 0.0f;
         m_viewport.FitToWindow();
+
+        m_currentFile = path;
 
         wchar_t title[MAX_PATH + 16];
         swprintf_s(title, L"SeeEXR - %s", path.c_str());
@@ -436,10 +481,21 @@ void App::LoadRecentFiles()
         return;
 
     wchar_t line[MAX_PATH + 2];
-    while (fwscanf(f, L" %[^\n]", line) == 1)
+    bool firstLine = true;
+    while (fgetws(line, _countof(line), f))
     {
-        if (line[0] != L'\0')
-            m_recentFiles.push_back(line);
+        wchar_t* start = line;
+        // Skip BOM character if CRT didn't consume it
+        if (firstLine && start[0] == L'\xFEFF')
+            start++;
+        firstLine = false;
+
+        // Strip trailing newline/carriage return
+        size_t len = wcslen(start);
+        while (len > 0 && (start[len - 1] == L'\n' || start[len - 1] == L'\r'))
+            start[--len] = L'\0';
+        if (len > 0)
+            m_recentFiles.push_back(start);
     }
     fclose(f);
 
@@ -452,20 +508,89 @@ void App::SaveRecentFiles()
     if (path.empty())
         return;
 
-    FILE* f = _wfopen(path.c_str(), L"w, ccs=UTF-8");
+    // Write to a temp file first, then atomically rename.
+    // This avoids data loss if the target file is briefly locked
+    // by Windows Search Indexer or antivirus during the write.
+    std::wstring tmpPath = path + L".tmp";
+
+    FILE* f = _wfopen(tmpPath.c_str(), L"w, ccs=UTF-8");
     if (!f)
         return;
 
     for (const auto& entry : m_recentFiles)
         fwprintf(f, L"%s\n", entry.c_str());
     fclose(f);
+
+    // Retry rename in case target is briefly locked
+    for (int i = 0; i < 3; i++)
+    {
+        if (MoveFileExW(tmpPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING))
+            return;
+        Sleep(50);
+    }
+    DeleteFileW(tmpPath.c_str());
 }
 
-void App::AddToRecentFiles(const std::wstring& path)
+std::wstring App::GetPreferencesPath()
 {
-    // Remove if already present (move to front)
+    wchar_t* appData = nullptr;
+    if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData)))
+        return {};
+    std::wstring dir = std::wstring(appData) + L"\\SeeEXR";
+    CoTaskMemFree(appData);
+    CreateDirectoryW(dir.c_str(), nullptr);
+    return dir + L"\\prefs.txt";
+}
+
+void App::LoadPreferences()
+{
+    std::wstring path = GetPreferencesPath();
+    if (path.empty())
+        return;
+
+    FILE* f = _wfopen(path.c_str(), L"r");
+    if (!f)
+        return;
+
+    char line[128];
+    while (fgets(line, sizeof(line), f))
+    {
+        int val;
+        if (sscanf(line, "showHistogram=%d", &val) == 1)
+            m_showHistogram = (val != 0);
+        else if (sscanf(line, "histogramChannel=%d", &val) == 1)
+            m_histogramChannel = (std::max)(0, (std::min)(val, 4));
+        else if (sscanf(line, "showGrid=%d", &val) == 1)
+            m_showGrid = (val != 0);
+    }
+    fclose(f);
+}
+
+void App::SavePreferences()
+{
+    std::wstring path = GetPreferencesPath();
+    if (path.empty())
+        return;
+
+    FILE* f = _wfopen(path.c_str(), L"w");
+    if (!f)
+        return;
+
+    fprintf(f, "showHistogram=%d\n", m_showHistogram ? 1 : 0);
+    fprintf(f, "histogramChannel=%d\n", m_histogramChannel);
+    fprintf(f, "showGrid=%d\n", m_showGrid ? 1 : 0);
+    fclose(f);
+}
+
+void App::AddToRecentFiles(std::wstring path)
+{
+    // Remove if already present (case-insensitive, since Windows paths are case-insensitive)
+    // Note: path is taken by value because callers may pass m_recentFiles[i],
+    // and remove_if would corrupt a reference into the vector being modified.
     m_recentFiles.erase(
-        std::remove(m_recentFiles.begin(), m_recentFiles.end(), path), m_recentFiles.end());
+        std::remove_if(m_recentFiles.begin(), m_recentFiles.end(),
+                        [&path](const std::wstring& entry) { return _wcsicmp(entry.c_str(), path.c_str()) == 0; }),
+        m_recentFiles.end());
 
     m_recentFiles.insert(m_recentFiles.begin(), path);
 

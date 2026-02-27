@@ -41,6 +41,9 @@ class Window
     // Recent files menu
     void UpdateRecentMenu(const std::vector<std::wstring>& paths);
 
+    // Update View menu check marks / radio state
+    void UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid);
+
     // Input callbacks
     MouseWheelHandler onMouseWheel;
     MouseMoveHandler onMouseMove;

@@ -19,11 +19,12 @@ cbuffer ViewportCB : register(b0) {
     float4x4 transform;
     float    exposure;
     float    gamma;
-    int      _unused0;
+    float    zoom;
     int      isHDR;
     float    sdrWhiteNits;
     float    displayMaxNits;
-    float2   _pad;
+    int      showGrid;
+    float    _pad;
 };
 
 struct VS_INPUT {
@@ -50,13 +51,42 @@ float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     float4 hdr = imageTexture.Sample(imageSampler, input.uv);
     float3 exposed = hdr.rgb * exp2(exposure);
 
-    // HDR: linear passthrough for scRGB
-    if (isHDR) return float4(exposed, 1.0);
+    float3 result;
+    if (isHDR) {
+        result = exposed;
+    } else {
+        result = pow(saturate(exposed), gamma);
+    }
 
-    // SDR: clamp + gamma
-    float3 mapped = saturate(exposed);
-    mapped = pow(mapped, gamma);
-    return float4(mapped, 1.0);
+    // Pixel grid at high zoom — draw lines at image pixel boundaries
+    if (showGrid && zoom >= 8.0) {
+        // Get image-space pixel coords from UV (UV 0..1 maps to image dims)
+        float2 imgCoord = input.uv * float2(ddx(input.uv).x, ddy(input.uv).y);
+        // Use derivatives to find image pixel size in screen pixels
+        float2 duvdx = ddx(input.uv);
+        float pixelSizeScreen = 1.0 / length(duvdx); // ~zoom level
+
+        // Distance from nearest pixel boundary in UV space
+        uint texW, texH;
+        imageTexture.GetDimensions(texW, texH);
+        float2 imgPos = input.uv * float2(texW, texH);
+        float2 fractPos = frac(imgPos);
+        float2 distToBorder = min(fractPos, 1.0 - fractPos); // [0, 0.5]
+
+        // Convert to screen pixels
+        float2 distScreen = distToBorder * zoom;
+        float minDist = min(distScreen.x, distScreen.y);
+
+        // Draw grid line when within ~0.5 screen pixels of a border
+        if (minDist < 0.5) {
+            // Fade grid in gradually between 8x and 32x zoom, cap at 50%
+            float gridAlpha = saturate((zoom - 8.0) / 24.0) * 0.5;
+            float3 gridColor = (result.r + result.g + result.b > 1.5) ? float3(0,0,0) : float3(0.5,0.5,0.5);
+            result = lerp(result, gridColor, gridAlpha);
+        }
+    }
+
+    return float4(result, 1.0);
 }
 )hlsl";
 
@@ -296,13 +326,17 @@ bool Renderer::Initialize(HWND hwnd)
         m_device->CreateBuffer(&hcbDesc, nullptr, &m_histogramCB);
     }
 
-    // Create sampler (bilinear for zoom-out, switch to point for zoom-in later)
+    // Create samplers — linear for zoom-out, point for zoom-in (>100%)
     D3D11_SAMPLER_DESC sampDesc = {};
-    sampDesc.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
     sampDesc.AddressU = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampDesc.AddressV = D3D11_TEXTURE_ADDRESS_CLAMP;
     sampDesc.AddressW = D3D11_TEXTURE_ADDRESS_CLAMP;
-    m_device->CreateSamplerState(&sampDesc, &m_sampler);
+
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_LINEAR_MIP_POINT;
+    m_device->CreateSamplerState(&sampDesc, &m_linearSampler);
+
+    sampDesc.Filter = D3D11_FILTER_MIN_MAG_MIP_POINT;
+    m_device->CreateSamplerState(&sampDesc, &m_pointSampler);
 
     // Create index buffer (two triangles)
     UINT16 indices[] = {0, 1, 2, 2, 3, 0};
@@ -485,7 +519,10 @@ void Renderer::RenderImage(const ViewportCB& vp)
     m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
     m_context->PSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf());
     m_context->PSSetShaderResources(0, 1, m_imageSRV.GetAddressOf());
-    m_context->PSSetSamplers(0, 1, m_sampler.GetAddressOf());
+
+    // Switch to nearest-neighbor sampling when zoomed past 1:1
+    auto& sampler = (vp.zoom >= 1.0f) ? m_pointSampler : m_linearSampler;
+    m_context->PSSetSamplers(0, 1, sampler.GetAddressOf());
 
     m_context->DrawIndexed(6, 0, 0);
 }

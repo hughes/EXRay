@@ -34,6 +34,7 @@ ViewportCB ViewportState::ToViewportCB() const
     ComputeTransform(cb.transform);
     cb.exposure = exposure;
     cb.gamma = gamma;
+    cb.zoom = zoom;
     cb.isHDR = isHDR ? 1 : 0;
     cb.sdrWhiteNits = sdrWhiteNits;
     cb.displayMaxNits = displayMaxNits;

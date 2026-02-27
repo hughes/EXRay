@@ -16,20 +16,20 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
 
     std::array<uint32_t, B> lumCounts{}, rCounts{}, gCounts{}, bCounts{};
 
-    // First pass: find dynamic range
+    // First pass: find dynamic range (skip NaN, Inf, negative, zero)
     float minPos = 1e30f, maxPos = 1e-30f;
     for (int i = 0; i < N; ++i)
     {
         const float* px = &image.pixels[static_cast<size_t>(i) * 4];
         float lum = 0.2126f * px[0] + 0.7152f * px[1] + 0.0722f * px[2];
-        if (lum > 0.0f)
+        if (lum > 0.0f && std::isfinite(lum))
         {
             minPos = (std::min)(minPos, lum);
             maxPos = (std::max)(maxPos, lum);
         }
         for (int c = 0; c < 3; ++c)
         {
-            if (px[c] > 0.0f)
+            if (px[c] > 0.0f && std::isfinite(px[c]))
             {
                 minPos = (std::min)(minPos, px[c]);
                 maxPos = (std::max)(maxPos, px[c]);
@@ -37,7 +37,7 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
         }
     }
 
-    if (minPos >= maxPos)
+    if (minPos > maxPos)
         return result;
 
     result.log2Min = std::floor(std::log2((std::max)(minPos, 1e-10f)));
@@ -50,7 +50,7 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
 
     auto toBin = [&](float val) -> int
     {
-        if (val <= 0.0f)
+        if (val <= 0.0f || !std::isfinite(val))
             return 0;
         float t = (std::log2(val) - result.log2Min) * rangeInv;
         int bin = static_cast<int>(t * (B - 1));

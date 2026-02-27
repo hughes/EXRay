@@ -26,11 +26,12 @@ struct ViewportCB
     float transform[16]; // 64 bytes — col-major 4x4
     float exposure;      // EV stops
     float gamma;         // typically 1/2.2
-    int _unused0;
+    float zoom;          // screen pixels per image pixel
     int isHDR;           // 0=SDR gamma output, 1=HDR scRGB linear
     float sdrWhiteNits;  // 80.0
     float displayMaxNits;
-    float _pad[2];
+    int showGrid;        // 0=off, 1=on
+    float _pad;
 }; // 96 bytes
 
 struct HistogramCB
@@ -85,7 +86,8 @@ class Renderer
     ComPtr<ID3D11Buffer> m_vertexBuffer;
     ComPtr<ID3D11Buffer> m_indexBuffer;
     ComPtr<ID3D11Buffer> m_constantBuffer;
-    ComPtr<ID3D11SamplerState> m_sampler;
+    ComPtr<ID3D11SamplerState> m_linearSampler;
+    ComPtr<ID3D11SamplerState> m_pointSampler;
 
     // Image texture
     ComPtr<ID3D11Texture2D> m_imageTexture;
