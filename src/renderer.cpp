@@ -101,32 +101,41 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
     int bin = clamp(int(localX * (binCount - 1)), 0, binCount - 1);
     float range = log2Max - log2Min;
 
-    // --- Exposure bracket: visible range in log2 scene space ---
-    // Bright clip: SDR clips at 1.0, HDR at displayMax/sdrWhite
-    float log2White = -tfExposure;
-    if (tfIsHDR && sdrWhiteNits > 0.0)
-        log2White += log2(displayMaxNits / sdrWhiteNits);
-    float whiteX = (range > 0.0) ? (log2White - log2Min) / range : 1.0;
+    // --- Exposure zones in log2 scene space ---
+    float rangeInv = (range > 0.0) ? 1.0 / range : 0.0;
 
-    // Dark crush: scene value that maps to ~1% output brightness
-    // pow(scene * 2^exp, gamma) = 0.01 -> log2(scene) = (1/gamma)*log2(0.01) - exp
-    // In HDR, gamma isn't applied to the image but we still use it for the bracket
+    // Dark crush: ~1% output brightness
     float log2Black = (1.0 / tfGamma) * log2(0.01) - tfExposure;
-    float blackX = (range > 0.0) ? (log2Black - log2Min) / range : 0.0;
+    float blackX = (log2Black - log2Min) * rangeInv;
 
-    // Outside the visible exposure window
-    bool outsideRight = (localX > whiteX);
-    bool outsideLeft = (localX < blackX);
+    // SDR white: scene value that maps to 1.0 output
+    float sdrWhiteX = (-tfExposure - log2Min) * rangeInv;
 
-    // Start with background — darken regions outside exposure bracket
-    float4 color;
-    if (outsideRight) {
-        color = float4(0.05, 0.0, 0.0, 0.75); // dark red tint for clipped highlights
-    } else if (outsideLeft) {
-        color = float4(0.0, 0.0, 0.05, 0.75); // dark blue tint for crushed shadows
-    } else {
-        color = float4(0.0, 0.0, 0.0, 0.65);
+    // HDR clip: display max luminance
+    float hdrWhiteX = sdrWhiteX;
+    if (tfIsHDR && sdrWhiteNits > 0.0)
+        hdrWhiteX = (log2(displayMaxNits / sdrWhiteNits) - tfExposure - log2Min) * rangeInv;
+
+    // Background brightness per zone — crushed zone stays black,
+    // normal range is lifted so the dark zone stands out by contrast
+    float zoneBg = 0.08; // SDR visible range — slightly lifted
+    float barScale = 1.0;
+    if (localX < blackX) {
+        zoneBg = 0.0;     // crushed shadows — pure black
+        barScale = 0.6;
+    } else if (tfIsHDR && localX > hdrWhiteX) {
+        zoneBg = 0.18;    // HDR clipped
+        barScale = 1.15;
+    } else if (tfIsHDR && localX > sdrWhiteX) {
+        zoneBg = 0.12;    // HDR extension (above SDR white)
+        barScale = 1.08;
+    } else if (!tfIsHDR && localX > sdrWhiteX) {
+        zoneBg = 0.18;    // SDR clipped
+        barScale = 1.15;
     }
+
+    // Background
+    float4 color = float4(zoneBg, zoneBg, zoneBg, 0.65);
 
     // --- Draw histogram bars ---
     if (channelMode == 4) {
@@ -138,13 +147,8 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
         if (barY < gVal) color.g = max(color.g, 0.7);
         if (barY < bVal) color.b = max(color.b, 0.7);
         if (barY < rVal || barY < gVal || barY < bVal) {
+            color.rgb *= barScale;
             color.a = 0.75;
-            // Desaturate bars in clipped/crushed regions
-            if (outsideRight) {
-                color.rgb = lerp(color.rgb, float3(0.3, 0.15, 0.15), 0.5);
-            } else if (outsideLeft) {
-                color.rgb = lerp(color.rgb, float3(0.15, 0.15, 0.3), 0.5);
-            }
         }
     } else {
         int row = channelMode;
@@ -156,21 +160,7 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
         if (channelMode == 3) barColor = float3(0.3, 0.3, 0.85);
 
         if (barY < val) {
-            if (outsideRight || outsideLeft) barColor *= 0.4;
-            color = float4(barColor, 0.75);
-        }
-    }
-
-    // --- Exposure bracket edges ---
-    float pxW = abs(ddx(localX));
-    if (range > 0.0 && whiteX > 0.0 && whiteX < 1.0) {
-        if (abs(localX - whiteX) < pxW * 1.2) {
-            color = float4(0.9, 0.9, 0.9, 0.85);
-        }
-    }
-    if (range > 0.0 && blackX > 0.0 && blackX < 1.0) {
-        if (abs(localX - blackX) < pxW * 1.2) {
-            color = float4(0.4, 0.4, 0.6, 0.85);
+            color = float4(barColor * barScale, 0.75);
         }
     }
 
