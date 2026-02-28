@@ -1,0 +1,79 @@
+# EXRay Release Checklist
+
+## 1. Polish & Completeness
+
+- [ ] About dialog — version string, links, license info
+- [ ] File association — register as handler for `.exr` files
+- [ ] Drag-and-drop — drop `.exr` files onto window to open
+- [ ] Error handling UX — graceful messages for corrupt/unsupported files, OOM, etc.
+- [ ] Recent files in File menu (feature exists internally but not in menu)
+- [ ] Window title shows current filename
+- [ ] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
+- [ ] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
+
+## 2. Testing
+
+- [ ] Manual test matrix — open various EXR files (single-part, multi-part, tiled, deep, different compressions, huge, tiny, malformed)
+- [ ] Manual test matrix — zoom, pan, exposure, histogram, tabs, fullscreen
+- [ ] Manual test matrix — HDR display, non-HDR display, multi-monitor, high-DPI
+- [ ] Crash/fuzz resilience — garbage and edge-case EXR files don't crash or hang
+- [ ] Multi-GPU/driver testing — NVIDIA, AMD, Intel
+- [ ] Performance benchmarks — time to open/render various file sizes (back up "insanely fast" claim)
+- [ ] Automated smoke test in CI (stretch goal)
+
+## 3. Licensing
+
+- [ ] Pick a license (MIT, Apache 2.0, GPLv3, etc.)
+- [ ] Add `LICENSE` file to repo root
+- [ ] Verify OpenEXR license (BSD-3-Clause) compatibility and attribution
+- [ ] Add license headers or NOTICE file as needed
+
+## 4. Build & CI/CD
+
+- [ ] GitHub Actions workflow — build on push/PR (Bazel + MSVC + Windows SDK)
+- [ ] Cache Bazel build artifacts in CI
+- [ ] Release workflow — triggered by git tag, builds release binary, creates GitHub Release
+- [ ] Single source of truth for version — propagate from MODULE.bazel to VERSIONINFO and About dialog
+
+## 5. Code Signing
+
+- [ ] Obtain code signing certificate (SignPath for free OSS, or paid EV cert)
+- [ ] Integrate signing into release pipeline
+- [ ] Verify SmartScreen doesn't block the signed binary
+
+## 6. GitHub Releases
+
+- [ ] Release CI produces signed standalone `EXRay.exe`
+- [ ] Verify no runtime DLL dependencies beyond system libs (or bundle them)
+- [ ] Create `CHANGELOG.md`
+- [ ] Provide both portable `.zip` and installer
+
+## 7. Windows Installer
+
+- [ ] Choose installer format (MSIX for Store, plus traditional WiX/Inno Setup for GitHub/WinGet)
+- [ ] Start menu shortcut
+- [ ] `.exr` file association
+- [ ] Uninstall entry in Add/Remove Programs
+- [ ] Optional: "Open with" context menu integration
+
+## 8. WinGet (Windows Package Manager)
+
+- [ ] Create manifest YAML for [winget-pkgs](https://github.com/microsoft/winget-pkgs)
+- [ ] Stable GitHub Release download URL + SHA256 hash
+- [ ] Submit PR to winget-pkgs repo
+- [ ] Automate future updates with `wingetcreate` (stretch goal)
+
+## 9. Microsoft Store
+
+- [ ] Register Microsoft Partner Center account (~$19)
+- [ ] Create `Package.appxmanifest` (app identity, capabilities, file type associations)
+- [ ] App icon at required sizes (44x44, 150x150, 300x300 — currently only 32x32)
+- [ ] Store screenshots (3-5 showing key features)
+- [ ] Store listing — short description, long description, category, age rating
+- [ ] Privacy policy URL
+- [ ] Build MSIX with Microsoft publisher identity
+- [ ] Submit for certification (1-3 business day review)
+
+## Suggested Priority Order
+
+Sections 1-6 get you to a credible public GitHub release. Sections 7-9 fulfill the full distribution promise. The scroll stutter and missing UX features can be addressed in parallel throughout.
