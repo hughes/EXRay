@@ -32,6 +32,9 @@ class App
     void SwitchToTab(int index);
     void CloseCurrentTab();
     void SaveTabState();
+    void StartPreload();
+    void FinishPreload();
+    void EvictDistantTabs();
     void Render();
     void UpdateImageStatusText();
     HistogramCB BuildHistogramCB() const;
@@ -68,6 +71,8 @@ class App
     {
         std::wstring path;
         float exposure = 0.0f;
+        ImageData image;
+        HistogramData histogram;
     };
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
@@ -76,9 +81,16 @@ class App
     std::vector<std::wstring> m_recentFiles;
     static constexpr int kMaxRecentFiles = 10;
 
-    // Parallel loading state
+    // Startup parallel loading state
     std::thread m_loadThread;
     ImageData m_pendingImage;
     std::string m_loadError;
     std::atomic<bool> m_loadComplete{false};
+
+    // Adjacent-tab preload state
+    std::thread m_preloadThread;
+    int m_preloadIndex = -1;
+    ImageData m_preloadImage;
+    HistogramData m_preloadHistogram;
+    std::atomic<bool> m_preloadComplete{false};
 };

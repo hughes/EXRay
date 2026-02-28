@@ -253,12 +253,23 @@ int App::Run()
         while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE))
         {
             if (msg.message == WM_QUIT)
+            {
+                if (m_preloadThread.joinable())
+                    m_preloadThread.join();
                 return static_cast<int>(msg.wParam);
+            }
             if (!TranslateAcceleratorW(m_window.GetHwnd(), m_window.GetAccelTable(), &msg))
             {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
+        }
+
+        // Collect finished preloads and start the next one
+        if (m_preloadComplete)
+        {
+            FinishPreload();
+            StartPreload();
         }
 
         if (m_needsRedraw)
@@ -461,17 +472,23 @@ void App::OpenFile(const std::wstring& path)
         }
     }
 
+    // Collect any finished preload before modifying tabs
+    if (m_preloadComplete)
+        FinishPreload();
+
     SaveTabState();
 
     if (!LoadFile(path))
         return;
 
-    m_openTabs.push_back({path, 0.0f});
+    m_openTabs.push_back({path, 0.0f, {}, {}});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
     AddToRecentFiles(path);
+    EvictDistantTabs();
+    StartPreload();
 }
 
 void App::SwitchToTab(int index)
@@ -481,11 +498,39 @@ void App::SwitchToTab(int index)
     if (index == m_activeTab)
         return;
 
+    // Collect any finished preload before switching
+    if (m_preloadComplete)
+        FinishPreload();
+
     SaveTabState();
     m_activeTab = index;
     m_window.SetActiveTab(index);
-    LoadFile(m_openTabs[index].path);
-    m_viewport.exposure = m_openTabs[index].exposure;
+
+    if (m_openTabs[index].image.IsLoaded())
+    {
+        // Cache hit — use cached data
+        m_image = std::move(m_openTabs[index].image);
+        m_histogram = std::move(m_openTabs[index].histogram);
+        m_renderer.UploadImage(m_image);
+        m_renderer.UploadHistogram(m_histogram);
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = m_openTabs[index].exposure;
+        m_viewport.FitToWindow();
+
+        wchar_t title[MAX_PATH + 16];
+        swprintf_s(title, L"EXRay - %s", m_openTabs[index].path.c_str());
+        m_window.SetTitle(title);
+    }
+    else
+    {
+        // Cache miss — read from disk
+        LoadFile(m_openTabs[index].path);
+        m_viewport.exposure = m_openTabs[index].exposure;
+    }
+
+    EvictDistantTabs();
+    StartPreload();
     UpdateImageStatusText();
     m_needsRedraw = true;
 }
@@ -497,6 +542,9 @@ void App::CloseCurrentTab()
         DestroyWindow(m_window.GetHwnd());
         return;
     }
+
+    // Invalidate preload — tab indices are shifting
+    m_preloadIndex = -1;
 
     int closingIndex = m_activeTab;
     m_openTabs.erase(m_openTabs.begin() + closingIndex);
@@ -530,7 +578,84 @@ void App::CloseCurrentTab()
 void App::SaveTabState()
 {
     if (m_activeTab >= 0 && m_activeTab < static_cast<int>(m_openTabs.size()))
+    {
         m_openTabs[m_activeTab].exposure = m_viewport.exposure;
+        if (m_image.IsLoaded())
+        {
+            m_openTabs[m_activeTab].image = std::move(m_image);
+            m_openTabs[m_activeTab].histogram = std::move(m_histogram);
+        }
+    }
+}
+
+void App::StartPreload()
+{
+    // Don't start if already preloading
+    if (m_preloadThread.joinable())
+        return;
+    if (m_openTabs.size() <= 1)
+        return;
+
+    int count = static_cast<int>(m_openTabs.size());
+    int next = m_activeTab + 1;
+    int prev = m_activeTab - 1;
+
+    // Prefer preloading the next tab, then previous
+    int target = -1;
+    if (next < count && !m_openTabs[next].image.IsLoaded())
+        target = next;
+    else if (prev >= 0 && !m_openTabs[prev].image.IsLoaded())
+        target = prev;
+
+    if (target < 0)
+        return;
+
+    m_preloadIndex = target;
+    m_preloadComplete = false;
+    std::wstring path = m_openTabs[target].path;
+    HWND hwnd = m_window.GetHwnd();
+
+    m_preloadThread = std::thread(
+        [this, path, hwnd]()
+        {
+            std::string error;
+            ImageLoader::LoadEXR(path, m_preloadImage, error);
+            if (m_preloadImage.IsLoaded())
+                m_preloadHistogram = HistogramComputer::Compute(m_preloadImage);
+            m_preloadComplete = true;
+            PostMessageW(hwnd, WM_APP, 0, 0);
+        });
+}
+
+void App::FinishPreload()
+{
+    if (!m_preloadThread.joinable())
+        return;
+    m_preloadThread.join();
+
+    if (m_preloadIndex >= 0 && m_preloadIndex < static_cast<int>(m_openTabs.size()) && m_preloadImage.IsLoaded())
+    {
+        m_openTabs[m_preloadIndex].image = std::move(m_preloadImage);
+        m_openTabs[m_preloadIndex].histogram = std::move(m_preloadHistogram);
+    }
+
+    m_preloadImage = ImageData{};
+    m_preloadHistogram = HistogramData{};
+    m_preloadIndex = -1;
+    m_preloadComplete = false;
+}
+
+void App::EvictDistantTabs()
+{
+    for (int i = 0; i < static_cast<int>(m_openTabs.size()); i++)
+    {
+        if (i >= m_activeTab - 1 && i <= m_activeTab + 1)
+            continue;
+        if (i == m_preloadIndex)
+            continue;
+        m_openTabs[i].image = ImageData{};
+        m_openTabs[i].histogram = HistogramData{};
+    }
 }
 
 HistogramCB App::BuildHistogramCB() const
