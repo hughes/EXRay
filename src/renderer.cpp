@@ -500,6 +500,36 @@ HDRDisplayInfo Renderer::DetectHDR(IDXGIAdapter* adapter)
     return info;
 }
 
+bool Renderer::SetHDRMode(bool enable)
+{
+    if (!m_hdrInfo.isHDRCapable || !m_swapchain)
+        return false;
+    if (enable == m_hdrEnabled)
+        return true;
+
+    ReleaseRenderTarget();
+
+    DXGI_FORMAT fmt = enable ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
+    HRESULT hr = m_swapchain->ResizeBuffers(2, m_width, m_height, fmt, 0);
+    if (FAILED(hr))
+    {
+        CreateRenderTarget();
+        return false;
+    }
+
+    ComPtr<IDXGISwapChain3> swapchain3;
+    if (SUCCEEDED(m_swapchain.As(&swapchain3)))
+    {
+        DXGI_COLOR_SPACE_TYPE cs =
+            enable ? DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709 : DXGI_COLOR_SPACE_RGB_FULL_G22_NONE_P709;
+        swapchain3->SetColorSpace1(cs);
+    }
+
+    CreateRenderTarget();
+    m_hdrEnabled = enable;
+    return true;
+}
+
 void Renderer::RenderImage(const ViewportCB& vp)
 {
     if (!m_imageSRV)

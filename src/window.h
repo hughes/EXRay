@@ -44,6 +44,7 @@ class Window
 
     // Update View menu check marks / radio state
     void UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid);
+    void UpdateHDRMenu(bool hdrCapable, bool hdrEnabled);
 
     // Tab bar management
     void AddTab(int index, const wchar_t* label);

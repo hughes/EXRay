@@ -65,6 +65,7 @@ class Renderer
 
     ID3D11Device1* GetDevice() const { return m_device.Get(); }
     bool IsHDREnabled() const { return m_hdrEnabled; }
+    bool SetHDRMode(bool enable);
     const HDRDisplayInfo& GetHDRInfo() const { return m_hdrInfo; }
 
   private:

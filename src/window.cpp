@@ -42,6 +42,7 @@ static HMENU CreateAppMenu()
     AppendMenuW(viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(channelMenu), L"Histogram &Channel\tC");
 
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GRID, L"Pixel &Grid\tG");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HDR, L"&HDR Output");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FULLSCREEN, L"&Fullscreen\tF11");
     AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
@@ -314,6 +315,18 @@ void Window::UpdateMenuChecks(bool showHistogram, int histogramChannel, bool sho
         EnableMenuItem(menu, id, MF_BYCOMMAND | enable);
 }
 
+void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)
+{
+    HMENU menu = GetMenu(m_hwnd);
+    if (!menu)
+        menu = m_savedMenu;
+    if (!menu)
+        return;
+
+    CheckMenuItem(menu, IDM_VIEW_HDR, MF_BYCOMMAND | (hdrEnabled ? MF_CHECKED : MF_UNCHECKED));
+    EnableMenuItem(menu, IDM_VIEW_HDR, MF_BYCOMMAND | (hdrCapable ? MF_ENABLED : MF_GRAYED));
+}
+
 void Window::AddTab(int index, const wchar_t* label)
 {
     if (!m_tabBar)
@@ -411,6 +424,11 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             self->onDrop(path);
         return 0;
     }
+
+    case WM_ACTIVATE:
+        if (LOWORD(wParam) != WA_INACTIVE && self->m_renderArea)
+            SetFocus(self->m_renderArea);
+        return 0;
 
     case WM_ERASEBKGND:
         return 1;

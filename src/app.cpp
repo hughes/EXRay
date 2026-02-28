@@ -188,6 +188,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         const auto& hdrInfo = m_renderer.GetHDRInfo();
         m_viewport.displayMaxNits = hdrInfo.maxLuminance;
     }
+    m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
 
     // Set initial client size in viewport
     int cw, ch;
@@ -375,6 +376,23 @@ void App::OnCommand(int commandId)
         m_needsRedraw = true;
         break;
 
+    case IDM_VIEW_HDR:
+    {
+        bool newState = !m_renderer.IsHDREnabled();
+        if (m_renderer.SetHDRMode(newState))
+        {
+            m_viewport.isHDR = newState;
+            if (newState)
+                m_viewport.displayMaxNits = m_renderer.GetHDRInfo().maxLuminance;
+            else
+                m_viewport.displayMaxNits = 80.0f;
+            m_window.UpdateHDRMenu(true, newState);
+            UpdateImageStatusText();
+            m_needsRedraw = true;
+        }
+        break;
+    }
+
     case IDM_VIEW_FULLSCREEN:
         m_window.ToggleFullscreen();
         break;
@@ -548,8 +566,8 @@ void App::UpdateImageStatusText()
     else
     {
         float displayGamma = 1.0f / m_viewport.gamma;
-        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | \u03B3 %.1f", m_image.width, m_image.height, m_viewport.exposure,
-                   displayGamma);
+        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | SDR | Gamma %.1f", m_image.width, m_image.height,
+                   m_viewport.exposure, displayGamma);
     }
     m_window.SetStatusText(2, infoBuf);
 }
