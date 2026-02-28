@@ -103,7 +103,10 @@ class Renderer
     ComPtr<ID3D11Buffer> m_histogramCB;
     ComPtr<ID3D11Texture2D> m_histogramTexture;
     ComPtr<ID3D11ShaderResourceView> m_histogramSRV;
-    ComPtr<ID3D11BlendState> m_alphaBlendState;
+    // Background snapshot for histogram compositing
+    ComPtr<ID3D11Texture2D> m_histBgTexture;
+    ComPtr<ID3D11ShaderResourceView> m_histBgSRV;
+    DXGI_FORMAT m_histBgFormat = DXGI_FORMAT_UNKNOWN;
 
     // HDR state
     HDRDisplayInfo m_hdrInfo;
