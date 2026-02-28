@@ -1,7 +1,7 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 
 cc_binary(
-    name = "seeexr",
+    name = "EXRay",
     srcs = [
         "src/main.cpp",
         "src/app.h",

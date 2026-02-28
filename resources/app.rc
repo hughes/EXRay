@@ -16,7 +16,7 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
-        MENUITEM "&About SeeEXR",          IDM_HELP_ABOUT
+        MENUITEM "&About EXRay",          IDM_HELP_ABOUT
     END
 END
 

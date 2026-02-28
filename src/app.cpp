@@ -42,7 +42,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     if (!m_window.Create(
             hInstance, nCmdShow, [this](int id) { OnCommand(id); }, [this](int w, int h) { OnResize(w, h); }))
     {
-        MessageBoxW(nullptr, L"Failed to create window.", L"SeeEXR", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to create window.", L"EXRay", MB_ICONERROR);
         return false;
     }
 
@@ -162,7 +162,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
     if (!m_renderer.Initialize(m_window.GetRenderHwnd()))
     {
-        MessageBoxW(nullptr, L"Failed to initialize D3D11.", L"SeeEXR", MB_ICONERROR);
+        MessageBoxW(nullptr, L"Failed to initialize D3D11.", L"EXRay", MB_ICONERROR);
         return false;
     }
 
@@ -206,7 +206,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_currentFile = cmdLinePath;
 
             wchar_t title[MAX_PATH + 16];
-            swprintf_s(title, L"SeeEXR - %s", cmdLinePath.c_str());
+            swprintf_s(title, L"EXRay - %s", cmdLinePath.c_str());
             m_window.SetTitle(title);
 
             UpdateImageStatusText();
@@ -217,7 +217,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             int len = MultiByteToWideChar(CP_UTF8, 0, m_loadError.c_str(), -1, nullptr, 0);
             std::wstring wideError(len, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, m_loadError.c_str(), -1, wideError.data(), len);
-            MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"SeeEXR - Error", MB_ICONERROR);
+            MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
         }
     }
 
@@ -345,7 +345,7 @@ void App::OnCommand(int commandId)
         break;
 
     case IDM_HELP_ABOUT:
-        MessageBoxW(m_window.GetHwnd(), L"SeeEXR - The EXR Viewer\nVersion 0.1.0", L"About SeeEXR",
+        MessageBoxW(m_window.GetHwnd(), L"EXRay - The EXR Viewer\nVersion 0.1.0", L"About EXRay",
                     MB_OK | MB_ICONINFORMATION);
         break;
     }
@@ -381,7 +381,7 @@ void App::LoadFile(const std::wstring& path)
         m_currentFile = path;
 
         wchar_t title[MAX_PATH + 16];
-        swprintf_s(title, L"SeeEXR - %s", path.c_str());
+        swprintf_s(title, L"EXRay - %s", path.c_str());
         m_window.SetTitle(title);
 
         UpdateImageStatusText();
@@ -394,7 +394,7 @@ void App::LoadFile(const std::wstring& path)
         int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
         std::wstring wideError(len, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
-        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"SeeEXR - Error", MB_ICONERROR);
+        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
     }
 }
 
@@ -464,7 +464,7 @@ std::wstring App::GetRecentFilesPath()
     wchar_t* appData = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData)))
         return {};
-    std::wstring dir = std::wstring(appData) + L"\\SeeEXR";
+    std::wstring dir = std::wstring(appData) + L"\\EXRay";
     CoTaskMemFree(appData);
     CreateDirectoryW(dir.c_str(), nullptr);
     return dir + L"\\recent.txt";
@@ -536,7 +536,7 @@ std::wstring App::GetPreferencesPath()
     wchar_t* appData = nullptr;
     if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &appData)))
         return {};
-    std::wstring dir = std::wstring(appData) + L"\\SeeEXR";
+    std::wstring dir = std::wstring(appData) + L"\\EXRay";
     CoTaskMemFree(appData);
     CreateDirectoryW(dir.c_str(), nullptr);
     return dir + L"\\prefs.txt";
@@ -587,10 +587,9 @@ void App::AddToRecentFiles(std::wstring path)
     // Remove if already present (case-insensitive, since Windows paths are case-insensitive)
     // Note: path is taken by value because callers may pass m_recentFiles[i],
     // and remove_if would corrupt a reference into the vector being modified.
-    m_recentFiles.erase(
-        std::remove_if(m_recentFiles.begin(), m_recentFiles.end(),
-                        [&path](const std::wstring& entry) { return _wcsicmp(entry.c_str(), path.c_str()) == 0; }),
-        m_recentFiles.end());
+    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(), [&path](const std::wstring& entry)
+                                       { return _wcsicmp(entry.c_str(), path.c_str()) == 0; }),
+                        m_recentFiles.end());
 
     m_recentFiles.insert(m_recentFiles.begin(), path);
 

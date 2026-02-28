@@ -51,39 +51,39 @@ struct StartupTiming
     {
         wchar_t buf[512];
 
-        OutputDebugStringW(L"[SeeEXR] === Startup Timing ===\n");
+        OutputDebugStringW(L"[EXRay] === Startup Timing ===\n");
 
         if (windowVisible)
         {
-            swprintf_s(buf, L"[SeeEXR] Window visible:     %6.1f ms\n", MsBetween(processStart, windowVisible));
+            swprintf_s(buf, L"[EXRay] Window visible:     %6.1f ms\n", MsBetween(processStart, windowVisible));
             OutputDebugStringW(buf);
         }
 
         if (d3dReady)
         {
-            swprintf_s(buf, L"[SeeEXR] D3D11 ready:        %6.1f ms\n", MsBetween(processStart, d3dReady));
+            swprintf_s(buf, L"[EXRay] D3D11 ready:        %6.1f ms\n", MsBetween(processStart, d3dReady));
             OutputDebugStringW(buf);
         }
 
         if (exrLoaded)
         {
-            swprintf_s(buf, L"[SeeEXR] EXR loaded:         %6.1f ms\n", MsBetween(processStart, exrLoaded));
+            swprintf_s(buf, L"[EXRay] EXR loaded:         %6.1f ms\n", MsBetween(processStart, exrLoaded));
             OutputDebugStringW(buf);
         }
 
         if (textureUploaded)
         {
-            swprintf_s(buf, L"[SeeEXR] Texture uploaded:   %6.1f ms\n", MsBetween(processStart, textureUploaded));
+            swprintf_s(buf, L"[EXRay] Texture uploaded:   %6.1f ms\n", MsBetween(processStart, textureUploaded));
             OutputDebugStringW(buf);
         }
 
         if (firstPresent)
         {
-            swprintf_s(buf, L"[SeeEXR] First present:      %6.1f ms  << TIME TO PIXELS\n",
+            swprintf_s(buf, L"[EXRay] First present:      %6.1f ms  << TIME TO PIXELS\n",
                        MsBetween(processStart, firstPresent));
             OutputDebugStringW(buf);
         }
 
-        OutputDebugStringW(L"[SeeEXR] ========================\n");
+        OutputDebugStringW(L"[EXRay] ========================\n");
     }
 };

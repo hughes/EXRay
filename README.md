@@ -1,6 +1,6 @@
-# SeeEXR
+# EXRay
 
-This is the most useful EXR viewer for Windows in the world. Ever said "just let me see it"? You need SeeEXR.
+This is the most useful EXR viewer for Windows in the world. Ever said "just let me see it"? You need EXRay.
 
 - leverages appropriate windows APIs
 - insanely fast and performant
@@ -12,3 +12,5 @@ This is the most useful EXR viewer for Windows in the world. Ever said "just let
 - hardware acceleration
 
 Available on GitHub, Windows package managers and even the Microsoft Store. Always free of ads and open-source.
+
+Renaming ideas: EXRay?

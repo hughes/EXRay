@@ -9,8 +9,8 @@
 #include <shellapi.h>
 #include <windowsx.h>
 
-static const wchar_t* const kClassName = L"SeeEXR_Window";
-static const wchar_t* const kRenderClassName = L"SeeEXR_RenderArea";
+static const wchar_t* const kClassName = L"EXRay_Window";
+static const wchar_t* const kRenderClassName = L"EXRay_RenderArea";
 
 static HMENU CreateAppMenu()
 {
@@ -46,7 +46,7 @@ static HMENU CreateAppMenu()
     AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(viewMenu), L"&View");
 
     HMENU helpMenu = CreatePopupMenu();
-    AppendMenuW(helpMenu, MF_STRING, IDM_HELP_ABOUT, L"&About SeeEXR");
+    AppendMenuW(helpMenu, MF_STRING, IDM_HELP_ABOUT, L"&About EXRay");
     AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(helpMenu), L"&Help");
 
     return menuBar;
@@ -94,8 +94,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
 
     HMENU menu = CreateAppMenu();
 
-    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kClassName, L"SeeEXR", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT,
-                             CW_USEDEFAULT, 1280, 720, nullptr, menu, hInstance, this);
+    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kClassName, L"EXRay", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+                             1280, 720, nullptr, menu, hInstance, this);
 
     if (!m_hwnd)
         return false;
@@ -195,9 +195,8 @@ void Window::ToggleFullscreen()
         MONITORINFO mi = {sizeof(mi)};
         GetMonitorInfoW(mon, &mi);
 
-        SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top,
-                     mi.rcMonitor.right - mi.rcMonitor.left, mi.rcMonitor.bottom - mi.rcMonitor.top,
-                     SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
         // Hide status bar in fullscreen
         if (m_statusBar)

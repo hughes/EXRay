@@ -1,7 +1,7 @@
 # Bazel
 bazel-bin/
 bazel-out/
-bazel-seeEXR/
+bazel-EXRay/
 bazel-testlogs/
 /bazel-*
 
