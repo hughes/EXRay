@@ -75,6 +75,13 @@
 - [ ] Build MSIX with Microsoft publisher identity
 - [ ] Submit for certification (1-3 business day review)
 
+## 10. Documentation
+
+- [ ] Polish `README.md` — feature list, screenshots/GIF, build instructions, download link
+- [ ] GitHub Pages site or landing page (e.g. `hughes.github.io/EXRay`)
+- [ ] Keyboard shortcuts / controls reference
+- [ ] Supported EXR features and limitations
+
 ## Suggested Priority Order
 
-Sections 1-6 get you to a credible public GitHub release. Sections 7-9 fulfill the full distribution promise. The scroll stutter and missing UX features can be addressed in parallel throughout.
+Sections 1-6 get you to a credible public GitHub release. Section 10 (at least the README) should land before the first release. Sections 7-9 fulfill the full distribution promise. The scroll stutter and missing UX features can be addressed in parallel throughout.
