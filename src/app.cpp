@@ -218,6 +218,15 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
 
+            // Re-read client size after AddTab — the tab bar is now visible,
+            // which shrinks the render area.  Also resize the swap chain to
+            // match, otherwise the first user resize causes a one-time pop.
+            m_window.GetClientSize(cw, ch);
+            m_viewport.clientWidth = static_cast<float>(cw);
+            m_viewport.clientHeight = static_cast<float>(ch);
+            m_renderer.Resize(cw, ch);
+            m_viewport.FitToWindow();
+
             wchar_t title[MAX_PATH + 16];
             swprintf_s(title, L"EXRay - %s", cmdLinePath.c_str());
             m_window.SetTitle(title);
@@ -418,11 +427,39 @@ void App::OnCommand(int commandId)
 void App::OnResize(int width, int height)
 {
     m_renderer.Resize(width, height);
-    m_viewport.clientWidth = static_cast<float>(width);
-    m_viewport.clientHeight = static_cast<float>(height);
-    if (m_image.IsLoaded())
-        m_viewport.FitToWindow();
-    m_needsRedraw = true;
+
+    float newW = static_cast<float>(width);
+    float newH = static_cast<float>(height);
+
+    // Shift pan so the image point at screen center stays centered.
+    // Zoom (source pixels per display pixel) is preserved.
+    m_viewport.panX += (newW - m_viewport.clientWidth) * 0.5f;
+    m_viewport.panY += (newH - m_viewport.clientHeight) * 0.5f;
+
+    m_viewport.clientWidth = newW;
+    m_viewport.clientHeight = newH;
+
+    // Render immediately so the image redraws during modal resize drag
+    // (Windows runs its own message loop while dragging, so our Run() loop
+    // doesn't get to call Render()).  Guard against early WM_SIZE during
+    // window creation when the renderer isn't initialized yet.
+    // Present without vsync so the frame appears instantly — with vsync the
+    // frame is queued for the next vblank, by which time the window has
+    // already moved to a new size and the compositor stretches the stale frame.
+    if (m_renderer.GetDevice())
+    {
+        m_renderer.BeginFrame(0.18f, 0.18f, 0.18f);
+        if (m_renderer.HasImage())
+        {
+            ViewportCB vp = m_viewport.ToViewportCB();
+            vp.showGrid = m_showGrid ? 1 : 0;
+            m_renderer.RenderImage(vp);
+            if (m_showHistogram && m_histogram.isValid)
+                m_renderer.RenderHistogram(BuildHistogramCB());
+        }
+        m_renderer.EndFrame(false);
+        m_needsRedraw = false;
+    }
 }
 
 bool App::LoadFile(const std::wstring& path)
@@ -481,12 +518,25 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
+    bool wasEmpty = m_openTabs.empty();
     m_openTabs.push_back({path, 0.0f, {}, {}});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
     AddToRecentFiles(path);
+
+    // First tab appearing changes the render area height — re-fit and
+    // resize the swap chain to match.
+    if (wasEmpty)
+    {
+        int cw, ch;
+        m_window.GetClientSize(cw, ch);
+        m_viewport.clientWidth = static_cast<float>(cw);
+        m_viewport.clientHeight = static_cast<float>(ch);
+        m_renderer.Resize(cw, ch);
+        m_viewport.FitToWindow();
+    }
     EvictDistantTabs();
     StartPreload();
 }
@@ -661,11 +711,20 @@ void App::EvictDistantTabs()
 HistogramCB App::BuildHistogramCB() const
 {
     HistogramCB cb = {};
-    // Panel in NDC: top-left corner, ~40% width, ~30% height
-    cb.panelLeft = -0.95f;
-    cb.panelTop = 0.95f;
-    cb.panelWidth = 0.40f;
-    cb.panelHeight = 0.30f;
+    // Fixed-size histogram panel in pixels, converted to NDC.
+    constexpr float kPanelWidthPx = 300.0f;
+    constexpr float kPanelHeightPx = 100.0f; // width and height in pixels
+    constexpr float kMarginPx = 10.0f;
+
+    float ndcW = (m_viewport.clientWidth > 0) ? (kPanelWidthPx / m_viewport.clientWidth) * 2.0f : 0.40f;
+    float ndcH = (m_viewport.clientHeight > 0) ? (kPanelHeightPx / m_viewport.clientHeight) * 2.0f : 0.30f;
+    float ndcMX = (m_viewport.clientWidth > 0) ? (kMarginPx / m_viewport.clientWidth) * 2.0f : 0.05f;
+    float ndcMY = (m_viewport.clientHeight > 0) ? (kMarginPx / m_viewport.clientHeight) * 2.0f : 0.05f;
+
+    cb.panelLeft = -1.0f + ndcMX;
+    cb.panelTop = 1.0f - ndcMY;
+    cb.panelWidth = ndcW;
+    cb.panelHeight = ndcH;
 
     cb.channelMode = m_histogramChannel;
     cb.log2Min = m_histogram.log2Min;

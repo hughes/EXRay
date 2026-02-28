@@ -54,7 +54,7 @@ class Renderer
     bool Initialize(HWND hwnd);
     void Resize(int width, int height);
     void BeginFrame(float clearR, float clearG, float clearB);
-    void EndFrame();
+    void EndFrame(bool vsync = true);
 
     bool UploadImage(const ImageData& image);
     void RenderImage(const ViewportCB& vp);

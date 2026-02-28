@@ -257,6 +257,7 @@ bool Renderer::Initialize(HWND hwnd)
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    desc.Scaling = DXGI_SCALING_NONE;
 
     if (m_hdrInfo.isHDRCapable)
         desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -423,7 +424,7 @@ void Renderer::BeginFrame(float clearR, float clearG, float clearB)
     m_context->RSSetViewports(1, &vp);
 }
 
-void Renderer::EndFrame() { m_swapchain->Present(1, 0); }
+void Renderer::EndFrame(bool vsync) { m_swapchain->Present(vsync ? 1 : 0, 0); }
 
 bool Renderer::UploadImage(const ImageData& image)
 {
