@@ -4,6 +4,7 @@ genrule(
     name = "app_resources",
     srcs = [
         "resources/app.rc",
+        "resources/app.manifest",
         "resources/exray-icon.ico",
         "src/resource.h",
     ],

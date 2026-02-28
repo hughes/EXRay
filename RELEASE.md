@@ -2,14 +2,15 @@
 
 ## 1. Polish & Completeness
 
-- [ ] About dialog — version string, links, license info
+- [x] About dialog — version string, links, license info
 - [ ] File association — register as handler for `.exr` files
-- [ ] Drag-and-drop — drop `.exr` files onto window to open
-- [ ] Error handling UX — graceful messages for corrupt/unsupported files, OOM, etc.
-- [ ] Recent files in File menu (feature exists internally but not in menu)
-- [ ] Window title shows current filename
-- [ ] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
+- [x] Drag-and-drop — drop `.exr` files onto window to open
+- [x] Error handling UX — dimension sanity check, OOM message, catch-all for unknown exceptions
+- [x] Recent files in File menu
+- [x] Window title shows current filename
+- [x] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
 - [ ] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
+- [ ] Update check — background WinHTTP GET to `api.github.com/repos/hughes/EXRay/releases/latest`, compare `tag_name` semver to current version. If newer: asterisk on Help menu, "Update available" line in About dialog. No interruptions. Requires at least one published release to test against.
 
 ## 2. Testing
 
@@ -23,17 +24,17 @@
 
 ## 3. Licensing
 
-- [ ] Pick a license (MIT, Apache 2.0, GPLv3, etc.)
-- [ ] Add `LICENSE` file to repo root
-- [ ] Verify OpenEXR license (BSD-3-Clause) compatibility and attribution
+- [x] Pick a license — GPLv3
+- [x] Add `LICENSE` file to repo root
+- [x] Verify OpenEXR license (BSD-3-Clause) compatibility — confirmed, added `THIRD_PARTY_LICENSES`
 - [ ] Add license headers or NOTICE file as needed
 
 ## 4. Build & CI/CD
 
-- [ ] GitHub Actions workflow — build on push/PR (Bazel + MSVC + Windows SDK)
-- [ ] Cache Bazel build artifacts in CI
-- [ ] Release workflow — triggered by git tag, builds release binary, creates GitHub Release
-- [ ] Single source of truth for version — propagate from MODULE.bazel to VERSIONINFO and About dialog
+- [x] GitHub Actions workflow — build on push/PR (Bazel + MSVC + Windows SDK)
+- [x] Cache Bazel build artifacts in CI
+- [x] Release workflow — triggered by git tag, builds optimized binary, creates GitHub Release with zip
+- [x] Single source of truth for version — `resource.h` defines feed VERSIONINFO + About dialog (still need to sync with MODULE.bazel)
 
 ## 5. Code Signing
 
@@ -44,8 +45,8 @@
 ## 6. GitHub Releases
 
 - [ ] Release CI produces signed standalone `EXRay.exe`
-- [ ] Verify no runtime DLL dependencies beyond system libs (or bundle them)
-- [ ] Create `CHANGELOG.md`
+- [x] Verify no runtime DLL dependencies beyond system libs — all system DLLs + MSVC runtime (bundle VC++ Redist or statically link with `/MT`)
+- [x] Create `CHANGELOG.md`
 - [ ] Provide both portable `.zip` and installer
 
 ## 7. Windows Installer

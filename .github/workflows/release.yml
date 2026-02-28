@@ -1,0 +1,61 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+jobs:
+  release:
+    runs-on: windows-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazelisk
+            ~/.cache/bazel
+          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', '.bazelrc', 'BUILD.bazel') }}
+          restore-keys: bazel-${{ runner.os }}-
+
+      - name: Locate rc.exe
+        shell: pwsh
+        run: |
+          $rc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter rc.exe |
+                Where-Object { $_.DirectoryName -match 'x64$' } |
+                Sort-Object { [version]($_.DirectoryName -replace '.*\\(\d+\.\d+\.\d+\.\d+)\\.*','$1') } -Descending |
+                Select-Object -First 1
+          if (-not $rc) { throw "rc.exe not found" }
+          $fso = New-Object -ComObject Scripting.FileSystemObject
+          $short = $fso.GetFile($rc.FullName).ShortPath
+          $build = Get-Content BUILD.bazel -Raw
+          $build = $build -replace 'C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\[^\\]+\\x64\\rc\.exe', ($short -replace '\\','\\')
+          Set-Content BUILD.bazel $build
+
+      - name: Build
+        shell: cmd
+        run: bazelisk build -c opt //:EXRay
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $zipName = "EXRay-$tag-win64.zip"
+          New-Item -ItemType Directory -Path staging | Out-Null
+          Copy-Item bazel-bin/EXRay.exe staging/
+          Copy-Item LICENSE staging/
+          Copy-Item THIRD_PARTY_LICENSES staging/
+          Copy-Item CHANGELOG.md staging/
+          Compress-Archive -Path staging/* -DestinationPath $zipName
+          Write-Host "Package: $zipName"
+          echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ env.ZIP_NAME }}
+          generate_release_notes: true

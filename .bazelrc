@@ -9,6 +9,9 @@ build --copt=/D_WIN32_WINNT=0x0A00
 build --copt=/DUNICODE
 build --copt=/D_UNICODE
 
+# Static CRT — no MSVCP140/VCRUNTIME DLL dependencies
+build --features=static_link_msvcrt
+
 # Detailed error output
 build --verbose_failures
 

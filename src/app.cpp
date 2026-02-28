@@ -418,9 +418,33 @@ void App::OnCommand(int commandId)
         break;
 
     case IDM_HELP_ABOUT:
-        MessageBoxW(m_window.GetHwnd(), L"EXRay - The EXR Viewer\nVersion 0.1.0", L"About EXRay",
-                    MB_OK | MB_ICONINFORMATION);
+    {
+        HICON bigIcon = static_cast<HICON>(
+            LoadImageW(m_hInstance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR));
+
+        TASKDIALOGCONFIG tdc = {sizeof(tdc)};
+        tdc.hwndParent = m_window.GetHwnd();
+        tdc.hInstance = m_hInstance;
+        tdc.dwFlags = TDF_ENABLE_HYPERLINKS | TDF_USE_HICON_MAIN;
+        tdc.dwCommonButtons = TDCBF_OK_BUTTON;
+        tdc.hMainIcon = bigIcon;
+        tdc.pszWindowTitle = L"About EXRay";
+        tdc.pszMainInstruction = L"EXRay";
+        tdc.pszContent = L"Version " EXRAY_VERSION_WSTR L"\n"
+                         EXRAY_COPYRIGHT_W L"\n\n"
+                         L"<a href=\"https://github.com/hughes/EXRay\">github.com/hughes/EXRay</a>\n"
+                         L"Open-source. Free of ads, forever.";
+        tdc.pfCallback = [](HWND hwnd, UINT msg, WPARAM, LPARAM lParam, LONG_PTR) -> HRESULT
+        {
+            if (msg == TDN_HYPERLINK_CLICKED)
+                ShellExecuteW(hwnd, L"open", reinterpret_cast<LPCWSTR>(lParam), nullptr, nullptr, SW_SHOW);
+            return S_OK;
+        };
+        TaskDialogIndirect(&tdc, nullptr, nullptr, nullptr);
+        if (bigIcon)
+            DestroyIcon(bigIcon);
         break;
+    }
     }
 }
 

@@ -1,0 +1,47 @@
+name: Build
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mount Bazel cache
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/bazelisk
+            ~/.cache/bazel
+          key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', '.bazelrc', 'BUILD.bazel') }}
+          restore-keys: bazel-${{ runner.os }}-
+
+      # The BUILD.bazel genrule hardcodes a local rc.exe path.
+      # Discover the actual path on this runner and patch it in.
+      - name: Locate rc.exe
+        shell: pwsh
+        run: |
+          $rc = Get-ChildItem "C:\Program Files (x86)\Windows Kits\10\bin" -Recurse -Filter rc.exe |
+                Where-Object { $_.DirectoryName -match 'x64$' } |
+                Sort-Object { [version]($_.DirectoryName -replace '.*\\(\d+\.\d+\.\d+\.\d+)\\.*','$1') } -Descending |
+                Select-Object -First 1
+          if (-not $rc) { throw "rc.exe not found" }
+          Write-Host "Found rc.exe at: $($rc.FullName)"
+          # Convert to 8.3 short path for the genrule
+          $fso = New-Object -ComObject Scripting.FileSystemObject
+          $short = $fso.GetFile($rc.FullName).ShortPath
+          Write-Host "Short path: $short"
+          # Patch BUILD.bazel with the correct rc.exe path
+          $build = Get-Content BUILD.bazel -Raw
+          $build = $build -replace 'C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\[^\\]+\\x64\\rc\.exe', ($short -replace '\\','\\')
+          Set-Content BUILD.bazel $build
+
+      - name: Build
+        shell: cmd
+        run: bazelisk build //:EXRay

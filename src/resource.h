@@ -1,5 +1,18 @@
 #pragma once
 
+// Version info — single source of truth for VERSIONINFO + About dialog
+#define EXRAY_VERSION_MAJOR 0
+#define EXRAY_VERSION_MINOR 1
+#define EXRAY_VERSION_PATCH 0
+#define EXRAY_VERSION_STR "0.1.0"
+#define EXRAY_COPYRIGHT "Copyright \xA9 2025 EXRay contributors"
+
+// Wide-string versions for C++ code
+#define EXRAY_WIDEN2(x) L##x
+#define EXRAY_WIDEN(x) EXRAY_WIDEN2(x)
+#define EXRAY_VERSION_WSTR EXRAY_WIDEN(EXRAY_VERSION_STR)
+#define EXRAY_COPYRIGHT_W EXRAY_WIDEN(EXRAY_COPYRIGHT)
+
 // Menu command IDs
 #define IDM_FILE_OPEN 40001
 #define IDM_FILE_RELOAD 40003
