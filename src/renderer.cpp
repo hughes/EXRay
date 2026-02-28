@@ -258,6 +258,7 @@ bool Renderer::Initialize(HWND hwnd)
     desc.BufferCount = 2;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
     desc.Scaling = DXGI_SCALING_NONE;
+    desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
 
     if (m_hdrInfo.isHDRCapable)
         desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -407,7 +408,7 @@ void Renderer::Resize(int width, int height)
     m_height = height;
 
     ReleaseRenderTarget();
-    m_swapchain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, 0);
+    m_swapchain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
     CreateRenderTarget();
 }
 
@@ -511,7 +512,7 @@ bool Renderer::SetHDRMode(bool enable)
     ReleaseRenderTarget();
 
     DXGI_FORMAT fmt = enable ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
-    HRESULT hr = m_swapchain->ResizeBuffers(2, m_width, m_height, fmt, 0);
+    HRESULT hr = m_swapchain->ResizeBuffers(2, m_width, m_height, fmt, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
     if (FAILED(hr))
     {
         CreateRenderTarget();
