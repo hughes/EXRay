@@ -493,7 +493,10 @@ void App::SwitchToTab(int index)
 void App::CloseCurrentTab()
 {
     if (m_activeTab < 0 || m_openTabs.empty())
+    {
+        DestroyWindow(m_window.GetHwnd());
         return;
+    }
 
     int closingIndex = m_activeTab;
     m_openTabs.erase(m_openTabs.begin() + closingIndex);

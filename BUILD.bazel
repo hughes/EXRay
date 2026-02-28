@@ -1,5 +1,16 @@
 load("@rules_cc//cc:defs.bzl", "cc_binary")
 
+genrule(
+    name = "app_resources",
+    srcs = [
+        "resources/app.rc",
+        "resources/exray-icon.ico",
+        "src/resource.h",
+    ],
+    outs = ["app.res"],
+    cmd_bat = "C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\100261~1.0\\x64\\rc.exe /nologo /I . /fo $@ $(location resources/app.rc)",
+)
+
 cc_binary(
     name = "EXRay",
     srcs = [
@@ -19,6 +30,7 @@ cc_binary(
         "src/timing.h",
         "src/resource.h",
     ],
+    additional_linker_inputs = [":app_resources"],
     includes = ["src"],
     deps = [
         "@openexr//:OpenEXR",
@@ -35,5 +47,6 @@ cc_binary(
         "-DEFAULTLIB:dxguid.lib",
         "-DEFAULTLIB:comctl32.lib",
         "-DEFAULTLIB:ole32.lib",
+        "$(location :app_resources)",
     ],
 )

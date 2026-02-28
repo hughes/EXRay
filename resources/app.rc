@@ -1,5 +1,6 @@
 #include "src/resource.h"
-#include <windows.h>
+
+IDI_APPICON ICON "resources/exray-icon.ico"
 
 IDR_MAINMENU MENU
 BEGIN
