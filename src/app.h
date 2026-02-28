@@ -27,7 +27,11 @@ class App
     void OnCommand(int commandId);
     void OnResize(int width, int height);
     void OpenFileDialog();
-    void LoadFile(const std::wstring& path);
+    void OpenFile(const std::wstring& path);
+    bool LoadFile(const std::wstring& path);
+    void SwitchToTab(int index);
+    void CloseCurrentTab();
+    void SaveTabState();
     void Render();
     void UpdateImageStatusText();
     HistogramCB BuildHistogramCB() const;
@@ -59,8 +63,14 @@ class App
     // Grid state
     bool m_showGrid = true;
 
-    // Current file (for reload)
-    std::wstring m_currentFile;
+    // Open file tabs
+    struct OpenTab
+    {
+        std::wstring path;
+        float exposure = 0.0f;
+    };
+    std::vector<OpenTab> m_openTabs;
+    int m_activeTab = -1;
 
     // Recent files
     std::vector<std::wstring> m_recentFiles;

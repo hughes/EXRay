@@ -19,6 +19,7 @@ static HMENU CreateAppMenu()
     HMENU fileMenu = CreatePopupMenu();
     AppendMenuW(fileMenu, MF_STRING, IDM_FILE_OPEN, L"&Open...\tCtrl+O");
     AppendMenuW(fileMenu, MF_STRING, IDM_FILE_RELOAD, L"&Reload\tCtrl+R");
+    AppendMenuW(fileMenu, MF_STRING, IDM_FILE_CLOSE, L"&Close\tCtrl+W");
     HMENU recentMenu = CreatePopupMenu();
     AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, 0, L"(empty)");
     AppendMenuW(fileMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu), L"Open &Recent");
@@ -57,6 +58,9 @@ static HACCEL CreateAppAccelerators()
     ACCEL accels[] = {
         {FVIRTKEY | FCONTROL, 'O', IDM_FILE_OPEN},
         {FVIRTKEY | FCONTROL, 'R', IDM_FILE_RELOAD},
+        {FVIRTKEY | FCONTROL, 'W', IDM_FILE_CLOSE},
+        {FVIRTKEY | FCONTROL, VK_TAB, IDM_FILE_NEXT_TAB},
+        {FVIRTKEY | FCONTROL | FSHIFT, VK_TAB, IDM_FILE_PREV_TAB},
         {FVIRTKEY | FCONTROL, '0', IDM_VIEW_FIT},
         {FVIRTKEY | FCONTROL, '1', IDM_VIEW_ACTUAL},
     };
@@ -100,8 +104,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     if (!m_hwnd)
         return false;
 
-    // Create status bar
-    INITCOMMONCONTROLSEX icex = {sizeof(icex), ICC_BAR_CLASSES};
+    // Create common controls (status bar + tab bar)
+    INITCOMMONCONTROLSEX icex = {sizeof(icex), ICC_BAR_CLASSES | ICC_TAB_CLASSES};
     InitCommonControlsEx(&icex);
 
     m_statusBar = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
@@ -110,6 +114,12 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     // 3 parts: pixel coords | RGBA values | image info
     int parts[] = {120, 420, -1};
     SendMessageW(m_statusBar, SB_SETPARTS, 3, reinterpret_cast<LPARAM>(parts));
+
+    // Create tab bar between menu and render area
+    m_tabBar = CreateWindowExW(0, WC_TABCONTROLW, nullptr,
+                               WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FOCUSNEVER, 0, 0, 0, 0, m_hwnd, nullptr,
+                               hInstance, nullptr);
+    SendMessageW(m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), FALSE);
 
     // Create render area child window — D3D11 swapchain targets this, not the main window
     m_renderArea = CreateWindowExW(0, kRenderClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
@@ -151,12 +161,17 @@ void Window::LayoutChildren()
         SendMessageW(m_statusBar, WM_SIZE, 0, 0);
 
     int sbH = GetStatusBarHeight();
-    int renderH = totalH - sbH;
+    int tabH = GetTabBarHeight();
+
+    if (m_tabBar)
+        MoveWindow(m_tabBar, 0, 0, totalW, tabH, TRUE);
+
+    int renderH = totalH - tabH - sbH;
     if (renderH < 0)
         renderH = 0;
 
     if (m_renderArea)
-        MoveWindow(m_renderArea, 0, 0, totalW, renderH, TRUE);
+        MoveWindow(m_renderArea, 0, tabH, totalW, renderH, TRUE);
 }
 
 int Window::GetStatusBarHeight() const
@@ -165,6 +180,18 @@ int Window::GetStatusBarHeight() const
         return 0;
     RECT rc;
     GetWindowRect(m_statusBar, &rc);
+    return rc.bottom - rc.top;
+}
+
+int Window::GetTabBarHeight() const
+{
+    if (!m_tabBar || !IsWindowVisible(m_tabBar))
+        return 0;
+    if (TabCtrl_GetItemCount(m_tabBar) == 0)
+        return 0;
+    // Compute tab strip height from a zero-height display rect
+    RECT rc = {0, 0, 100, 0};
+    TabCtrl_AdjustRect(m_tabBar, TRUE, &rc);
     return rc.bottom - rc.top;
 }
 
@@ -198,26 +225,31 @@ void Window::ToggleFullscreen()
         SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
                      mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
 
-        // Hide status bar in fullscreen
+        // Hide status bar and tab bar in fullscreen
         if (m_statusBar)
             ShowWindow(m_statusBar, SW_HIDE);
+        if (m_tabBar)
+            ShowWindow(m_tabBar, SW_HIDE);
 
         m_isFullscreen = true;
     }
     else
     {
+        // Show status bar and tab bar before restoring placement,
+        // because SetWindowPlacement triggers WM_SIZE -> LayoutChildren()
+        // which needs these visible to compute correct layout.
+        if (m_statusBar)
+            ShowWindow(m_statusBar, SW_SHOW);
+        if (m_tabBar)
+            ShowWindow(m_tabBar, SW_SHOW);
+
         // Restore window chrome and menu bar
+        m_isFullscreen = false;
         LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
         SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
         SetMenu(m_hwnd, m_savedMenu);
         SetWindowPlacement(m_hwnd, &m_savedPlacement);
         SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
-
-        // Show status bar again
-        if (m_statusBar)
-            ShowWindow(m_statusBar, SW_SHOW);
-
-        m_isFullscreen = false;
     }
 }
 
@@ -226,10 +258,10 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
     if (!m_hwnd)
         return;
 
-    // Find the File menu (position 0), then the "Open Recent" submenu (position 2)
+    // Find the File menu (position 0), then the "Open Recent" submenu (position 3)
     HMENU menuBar = GetMenu(m_hwnd);
     HMENU fileMenu = GetSubMenu(menuBar, 0);
-    HMENU recentMenu = GetSubMenu(fileMenu, 2);
+    HMENU recentMenu = GetSubMenu(fileMenu, 3);
 
     if (!recentMenu)
         return;
@@ -282,6 +314,45 @@ void Window::UpdateMenuChecks(bool showHistogram, int histogramChannel, bool sho
         EnableMenuItem(menu, id, MF_BYCOMMAND | enable);
 }
 
+void Window::AddTab(int index, const wchar_t* label)
+{
+    if (!m_tabBar)
+        return;
+    TCITEMW tci = {};
+    tci.mask = TCIF_TEXT;
+    tci.pszText = const_cast<wchar_t*>(label);
+    TabCtrl_InsertItem(m_tabBar, index, &tci);
+    LayoutChildren();
+}
+
+void Window::RemoveTab(int index)
+{
+    if (!m_tabBar)
+        return;
+    TabCtrl_DeleteItem(m_tabBar, index);
+    LayoutChildren();
+}
+
+void Window::SetActiveTab(int index)
+{
+    if (m_tabBar)
+        TabCtrl_SetCurSel(m_tabBar, index);
+}
+
+int Window::GetActiveTab() const
+{
+    if (!m_tabBar)
+        return -1;
+    return TabCtrl_GetCurSel(m_tabBar);
+}
+
+int Window::GetTabCount() const
+{
+    if (!m_tabBar)
+        return 0;
+    return TabCtrl_GetItemCount(m_tabBar);
+}
+
 LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam)
 {
     Window* self = nullptr;
@@ -317,6 +388,18 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 self->m_onResize(w, h);
         }
         return 0;
+
+    case WM_NOTIFY:
+    {
+        auto* nmhdr = reinterpret_cast<NMHDR*>(lParam);
+        if (nmhdr->hwndFrom == self->m_tabBar && nmhdr->code == TCN_SELCHANGE)
+        {
+            int sel = TabCtrl_GetCurSel(self->m_tabBar);
+            if (sel >= 0 && self->onTabChange)
+                self->onTabChange(sel);
+        }
+        return 0;
+    }
 
     case WM_DROPFILES:
     {

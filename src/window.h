@@ -21,6 +21,7 @@ class Window
     using MouseButtonHandler = std::function<void(int x, int y, bool down)>;
     using KeyHandler = std::function<void(int vk)>;
     using DropHandler = std::function<void(const wchar_t* path)>;
+    using TabChangeHandler = std::function<void(int newIndex)>;
 
     bool Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand, ResizeHandler onResize);
     void SetTitle(const wchar_t* title);
@@ -44,12 +45,20 @@ class Window
     // Update View menu check marks / radio state
     void UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid);
 
+    // Tab bar management
+    void AddTab(int index, const wchar_t* label);
+    void RemoveTab(int index);
+    void SetActiveTab(int index);
+    int GetActiveTab() const;
+    int GetTabCount() const;
+
     // Input callbacks
     MouseWheelHandler onMouseWheel;
     MouseMoveHandler onMouseMove;
     MouseButtonHandler onMiddleButton;
     KeyHandler onKeyDown;
     DropHandler onDrop;
+    TabChangeHandler onTabChange;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -59,6 +68,7 @@ class Window
 
     HWND m_hwnd = nullptr;
     HWND m_renderArea = nullptr;
+    HWND m_tabBar = nullptr;
     HWND m_statusBar = nullptr;
     HACCEL m_accel = nullptr;
     CommandHandler m_onCommand;
@@ -75,4 +85,5 @@ class Window
     HMENU m_savedMenu = nullptr;
 
     int GetStatusBarHeight() const;
+    int GetTabBarHeight() const;
 };

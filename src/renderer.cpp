@@ -430,6 +430,12 @@ bool Renderer::UploadImage(const ImageData& image)
     m_imageTexture.Reset();
     m_imageSRV.Reset();
 
+    if (!image.IsLoaded())
+    {
+        m_vertexBuffer.Reset();
+        return true;
+    }
+
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = image.width;
     texDesc.Height = image.height;

@@ -9,6 +9,14 @@
 #include <algorithm>
 #include <shlobj.h>
 
+static const wchar_t* ExtractFilename(const std::wstring& path)
+{
+    const wchar_t* fn = wcsrchr(path.c_str(), L'\\');
+    if (!fn)
+        fn = wcsrchr(path.c_str(), L'/');
+    return fn ? fn + 1 : path.c_str();
+}
+
 bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing)
 {
     m_hInstance = hInstance;
@@ -156,7 +164,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
     };
 
-    m_window.onDrop = [this](const wchar_t* path) { LoadFile(path); };
+    m_window.onDrop = [this](const wchar_t* path) { OpenFile(path); };
+    m_window.onTabChange = [this](int index) { SwitchToTab(index); };
 
     m_timing->windowVisible = StartupTiming::Now();
 
@@ -203,7 +212,10 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.imageHeight = static_cast<float>(m_image.height);
             m_viewport.FitToWindow();
 
-            m_currentFile = cmdLinePath;
+            m_openTabs.push_back({cmdLinePath, 0.0f});
+            m_activeTab = 0;
+            m_window.AddTab(0, ExtractFilename(cmdLinePath));
+            m_window.SetActiveTab(0);
 
             wchar_t title[MAX_PATH + 16];
             swprintf_s(title, L"EXRay - %s", cmdLinePath.c_str());
@@ -286,7 +298,7 @@ void App::OnCommand(int commandId)
     {
         int index = commandId - IDM_FILE_RECENT_BASE;
         if (index >= 0 && index < static_cast<int>(m_recentFiles.size()))
-            LoadFile(m_recentFiles[index]);
+            OpenFile(m_recentFiles[index]);
         return;
     }
 
@@ -297,8 +309,31 @@ void App::OnCommand(int commandId)
         break;
 
     case IDM_FILE_RELOAD:
-        if (!m_currentFile.empty())
-            LoadFile(m_currentFile);
+        if (m_activeTab >= 0)
+        {
+            m_openTabs[m_activeTab].exposure = 0.0f;
+            LoadFile(m_openTabs[m_activeTab].path);
+        }
+        break;
+
+    case IDM_FILE_CLOSE:
+        CloseCurrentTab();
+        break;
+
+    case IDM_FILE_NEXT_TAB:
+        if (!m_openTabs.empty())
+        {
+            int next = (m_activeTab + 1) % static_cast<int>(m_openTabs.size());
+            SwitchToTab(next);
+        }
+        break;
+
+    case IDM_FILE_PREV_TAB:
+        if (!m_openTabs.empty())
+        {
+            int prev = (m_activeTab - 1 + static_cast<int>(m_openTabs.size())) % static_cast<int>(m_openTabs.size());
+            SwitchToTab(prev);
+        }
         break;
 
     case IDM_FILE_EXIT:
@@ -361,7 +396,7 @@ void App::OnResize(int width, int height)
     m_needsRedraw = true;
 }
 
-void App::LoadFile(const std::wstring& path)
+bool App::LoadFile(const std::wstring& path)
 {
     std::string errorMsg;
     ImageData newImage;
@@ -378,16 +413,13 @@ void App::LoadFile(const std::wstring& path)
         m_viewport.exposure = 0.0f;
         m_viewport.FitToWindow();
 
-        m_currentFile = path;
-
         wchar_t title[MAX_PATH + 16];
         swprintf_s(title, L"EXRay - %s", path.c_str());
         m_window.SetTitle(title);
 
         UpdateImageStatusText();
-        AddToRecentFiles(path);
-
         m_needsRedraw = true;
+        return true;
     }
     else
     {
@@ -395,7 +427,89 @@ void App::LoadFile(const std::wstring& path)
         std::wstring wideError(len, L'\0');
         MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
         MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+        return false;
     }
+}
+
+void App::OpenFile(const std::wstring& path)
+{
+    // Check if file is already open (case-insensitive)
+    for (int i = 0; i < static_cast<int>(m_openTabs.size()); ++i)
+    {
+        if (_wcsicmp(m_openTabs[i].path.c_str(), path.c_str()) == 0)
+        {
+            SwitchToTab(i);
+            return;
+        }
+    }
+
+    SaveTabState();
+
+    if (!LoadFile(path))
+        return;
+
+    m_openTabs.push_back({path, 0.0f});
+    int newIndex = static_cast<int>(m_openTabs.size()) - 1;
+    m_window.AddTab(newIndex, ExtractFilename(path));
+    m_activeTab = newIndex;
+    m_window.SetActiveTab(m_activeTab);
+    AddToRecentFiles(path);
+}
+
+void App::SwitchToTab(int index)
+{
+    if (index < 0 || index >= static_cast<int>(m_openTabs.size()))
+        return;
+    if (index == m_activeTab)
+        return;
+
+    SaveTabState();
+    m_activeTab = index;
+    m_window.SetActiveTab(index);
+    LoadFile(m_openTabs[index].path);
+    m_viewport.exposure = m_openTabs[index].exposure;
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::CloseCurrentTab()
+{
+    if (m_activeTab < 0 || m_openTabs.empty())
+        return;
+
+    int closingIndex = m_activeTab;
+    m_openTabs.erase(m_openTabs.begin() + closingIndex);
+    m_window.RemoveTab(closingIndex);
+
+    if (m_openTabs.empty())
+    {
+        m_activeTab = -1;
+        m_image = ImageData{};
+        m_renderer.UploadImage(m_image);
+        m_histogram = HistogramData{};
+        m_window.SetTitle(L"EXRay");
+        m_window.SetStatusText(0, L"");
+        m_window.SetStatusText(1, L"");
+        m_window.SetStatusText(2, L"");
+        m_needsRedraw = true;
+    }
+    else
+    {
+        int newActive = closingIndex;
+        if (newActive >= static_cast<int>(m_openTabs.size()))
+            newActive = static_cast<int>(m_openTabs.size()) - 1;
+
+        // Set m_activeTab to -1 so SwitchToTab doesn't try to save state
+        // for the now-deleted tab
+        m_activeTab = -1;
+        SwitchToTab(newActive);
+    }
+}
+
+void App::SaveTabState()
+{
+    if (m_activeTab >= 0 && m_activeTab < static_cast<int>(m_openTabs.size()))
+        m_openTabs[m_activeTab].exposure = m_viewport.exposure;
 }
 
 HistogramCB App::BuildHistogramCB() const
@@ -455,7 +569,7 @@ void App::OpenFileDialog()
 
     if (GetOpenFileNameW(&ofn))
     {
-        LoadFile(filePath);
+        OpenFile(filePath);
     }
 }
 
