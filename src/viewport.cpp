@@ -82,6 +82,15 @@ void ViewportState::ZoomAt(float screenX, float screenY, float delta)
     panY = screenY - (screenY - panY) * ratio;
 }
 
+void ViewportState::ZoomAtScale(float screenX, float screenY, float scale)
+{
+    float oldZoom = zoom;
+    zoom = (std::max)(0.01f, (std::min)(zoom * scale, 100.0f));
+    float ratio = zoom / oldZoom;
+    panX = screenX - (screenX - panX) * ratio;
+    panY = screenY - (screenY - panY) * ratio;
+}
+
 void ViewportState::AdjustExposure(float delta)
 {
     exposure += delta;

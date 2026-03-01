@@ -15,6 +15,7 @@ A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, an
 - **Multi-image tabs** - open multiple EXR files with smart memory management (adjacent tabs stay cached)
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
+- **Trackpad & touchscreen** - two-finger pan, pinch-to-zoom, and single-touch drag
 
 ## Supported EXR Features
 
@@ -45,9 +46,10 @@ A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, an
 | Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Fit to window | `Ctrl+0` |
 | Actual size (1:1) | `Ctrl+1` |
-| Zoom | Scroll wheel (centered on cursor) |
-| Pan | Middle mouse drag |
-| Exposure ±0.25 EV | `+` / `-` or `Ctrl+Scroll` |
+| Zoom | `Ctrl+Scroll` · pinch (centered on cursor) |
+| Pan (vertical) | Scroll · two-finger swipe · middle mouse drag · touch drag |
+| Pan (horizontal) | `Shift+Scroll` · two-finger horizontal swipe |
+| Exposure ±0.25 EV | `+` / `-` |
 | Gamma ±  (SDR) | `]` / `[` |
 | Toggle histogram | `H` |
 | Cycle histogram channel | `C` |

@@ -24,7 +24,9 @@ class Window
   public:
     using CommandHandler = std::function<void(int commandId)>;
     using ResizeHandler = std::function<void(int width, int height)>;
-    using MouseWheelHandler = std::function<void(int x, int y, int delta, bool ctrlHeld)>;
+    using MouseWheelHandler  = std::function<void(int x, int y, int delta, bool ctrlHeld, bool shiftHeld)>;
+    using MouseHWheelHandler = std::function<void(int x, int y, int delta)>;
+    using PinchZoomHandler   = std::function<void(int cx, int cy, float scale)>;
     using MouseMoveHandler = std::function<void(int x, int y)>;
     using MouseButtonHandler = std::function<void(int x, int y, bool down)>;
     using KeyHandler = std::function<void(int vk)>;
@@ -63,12 +65,14 @@ class Window
     int GetTabCount() const;
 
     // Input callbacks
-    MouseWheelHandler onMouseWheel;
-    MouseMoveHandler onMouseMove;
+    MouseWheelHandler  onMouseWheel;
+    MouseHWheelHandler onMouseHWheel;
+    MouseMoveHandler   onMouseMove;
     MouseButtonHandler onMiddleButton;
-    KeyHandler onKeyDown;
-    DropHandler onDrop;
-    TabChangeHandler onTabChange;
+    PinchZoomHandler   onPinchZoom;
+    KeyHandler         onKeyDown;
+    DropHandler        onDrop;
+    TabChangeHandler   onTabChange;
     ContextMenuHandler onContextMenu;
 
   private:
@@ -89,6 +93,14 @@ class Window
     bool m_middleDragging = false;
     int m_lastDragX = 0;
     int m_lastDragY = 0;
+
+    // Touch tracking for WM_POINTER
+    struct TouchPoint { UINT32 id; int x, y; };
+    TouchPoint m_touches[2]  = {};
+    int  m_touchCount        = 0;
+    int  m_prevTouchCX       = 0;
+    int  m_prevTouchCY       = 0;
+    float m_prevTouchDist    = 0.0f;
 
     // Fullscreen state
     bool m_isFullscreen = false;

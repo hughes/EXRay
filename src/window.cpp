@@ -502,9 +502,20 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         ScreenToClient(hwnd, &pt);
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        bool ctrl = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
+        bool ctrl  = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
+        bool shift = (GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) != 0;
         if (self->onMouseWheel)
-            self->onMouseWheel(pt.x, pt.y, delta, ctrl);
+            self->onMouseWheel(pt.x, pt.y, delta, ctrl, shift);
+        return 0;
+    }
+
+    case WM_MOUSEHWHEEL:
+    {
+        POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        ScreenToClient(hwnd, &pt);
+        int delta = GET_WHEEL_DELTA_WPARAM(wParam);
+        if (self->onMouseHWheel)
+            self->onMouseHWheel(pt.x, pt.y, delta);
         return 0;
     }
 
@@ -556,6 +567,121 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         if (x != -1 && y != -1 && self->onContextMenu)
             self->onContextMenu(x, y);
         return 0;
+    }
+
+    case WM_POINTERDOWN:
+    case WM_POINTERUPDATE:
+    case WM_POINTERUP:
+    {
+        UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
+        POINTER_INFO pi  = {};
+        if (!GetPointerInfo(pointerId, &pi) || pi.pointerType != PT_TOUCH)
+            return DefWindowProcW(hwnd, msg, wParam, lParam);
+
+        POINT pt = pi.ptPixelLocation;
+        ScreenToClient(hwnd, &pt);
+
+        if (msg == WM_POINTERDOWN)
+        {
+            SetFocus(hwnd);
+            // Add to tracking (max 2 points)
+            bool found = false;
+            for (int i = 0; i < self->m_touchCount; ++i)
+            {
+                if (self->m_touches[i].id == pointerId)
+                {
+                    self->m_touches[i] = {pointerId, pt.x, pt.y};
+                    found = true;
+                    break;
+                }
+            }
+            if (!found && self->m_touchCount < 2)
+                self->m_touches[self->m_touchCount++] = {pointerId, pt.x, pt.y};
+
+            // Reset baseline so first POINTERUPDATE doesn't produce a stale delta
+            int cx = 0, cy = 0;
+            for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+            self->m_prevTouchCX = cx / self->m_touchCount;
+            self->m_prevTouchCY = cy / self->m_touchCount;
+            if (self->m_touchCount == 2)
+            {
+                float dx = (float)(self->m_touches[0].x - self->m_touches[1].x);
+                float dy = (float)(self->m_touches[0].y - self->m_touches[1].y);
+                self->m_prevTouchDist = sqrtf(dx * dx + dy * dy);
+            }
+        }
+        else if (msg == WM_POINTERUP)
+        {
+            for (int i = 0; i < self->m_touchCount; ++i)
+            {
+                if (self->m_touches[i].id == pointerId)
+                {
+                    self->m_touches[i] = self->m_touches[--self->m_touchCount];
+                    break;
+                }
+            }
+            // Reset baseline for remaining touch(es)
+            if (self->m_touchCount > 0)
+            {
+                int cx = 0, cy = 0;
+                for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+                self->m_prevTouchCX = cx / self->m_touchCount;
+                self->m_prevTouchCY = cy / self->m_touchCount;
+                self->m_prevTouchDist = 0.0f;
+            }
+        }
+        else // WM_POINTERUPDATE
+        {
+            // Update the stored position for this touch point
+            for (int i = 0; i < self->m_touchCount; ++i)
+            {
+                if (self->m_touches[i].id == pointerId)
+                {
+                    self->m_touches[i].x = pt.x;
+                    self->m_touches[i].y = pt.y;
+                    break;
+                }
+            }
+
+            // Coalesce: if more POINTERUPDATE messages are already queued, skip
+            // firing callbacks now — the position is updated and a later message
+            // (with everyone's latest position) will fire the callbacks once.
+            // This prevents processing a large backlog of stale intermediate positions.
+            MSG peek;
+            if (PeekMessageW(&peek, hwnd, WM_POINTERUPDATE, WM_POINTERUPDATE, PM_NOREMOVE))
+                return 0;
+
+            if (self->m_touchCount > 0)
+            {
+                int cx = 0, cy = 0;
+                for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+                cx /= self->m_touchCount;
+                cy /= self->m_touchCount;
+
+                int dx = cx - self->m_prevTouchCX;
+                int dy = cy - self->m_prevTouchCY;
+                self->m_prevTouchCX = cx;
+                self->m_prevTouchCY = cy;
+
+                if ((dx || dy) && self->onMiddleButton)
+                    self->onMiddleButton(dx, dy, true);
+
+                if (self->m_touchCount == 2 && self->m_prevTouchDist > 0.0f)
+                {
+                    float fdx = (float)(self->m_touches[0].x - self->m_touches[1].x);
+                    float fdy = (float)(self->m_touches[0].y - self->m_touches[1].y);
+                    float dist = sqrtf(fdx * fdx + fdy * fdy);
+                    if (dist > 0.0f)
+                    {
+                        float scale = dist / self->m_prevTouchDist;
+                        if (self->onPinchZoom)
+                            self->onPinchZoom(cx, cy, scale);
+                    }
+                    self->m_prevTouchDist = dist;
+                }
+            }
+        }
+        return 0; // Suppress mouse synthesis from touch
     }
 
     case WM_ERASEBKGND:

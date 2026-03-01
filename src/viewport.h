@@ -42,6 +42,9 @@ struct ViewportState
     // Zoom centered on screen point (cursor position)
     void ZoomAt(float screenX, float screenY, float delta);
 
+    // Zoom by a direct scale multiplier (e.g. from pinch gesture)
+    void ZoomAtScale(float screenX, float screenY, float scale);
+
     // Adjust exposure in EV stops
     void AdjustExposure(float delta);
 

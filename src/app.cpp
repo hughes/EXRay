@@ -57,17 +57,26 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     }
 
     // Wire up input callbacks
-    m_window.onMouseWheel = [this](int x, int y, int delta, bool ctrl)
+    m_window.onMouseWheel = [this](int x, int y, int delta, bool ctrl, bool shift)
     {
         if (ctrl)
-        {
-            m_viewport.AdjustExposure(delta > 0 ? 0.25f : -0.25f);
-            UpdateImageStatusText();
-        }
-        else
-        {
             m_viewport.ZoomAt(static_cast<float>(x), static_cast<float>(y), static_cast<float>(delta));
-        }
+        else if (shift)
+            m_viewport.Pan(static_cast<float>(delta) * 0.8f, 0.0f);  // Shift+scroll → pan X
+        else
+            m_viewport.Pan(0.0f, static_cast<float>(delta) * 0.8f);   // scroll → pan Y
+        m_needsRedraw = true;
+    };
+
+    m_window.onMouseHWheel = [this](int /*x*/, int /*y*/, int delta)
+    {
+        m_viewport.Pan(static_cast<float>(-delta) * 0.8f, 0.0f); // H-scroll → pan X
+        m_needsRedraw = true;
+    };
+
+    m_window.onPinchZoom = [this](int cx, int cy, float scale)
+    {
+        m_viewport.ZoomAtScale(static_cast<float>(cx), static_cast<float>(cy), scale);
         m_needsRedraw = true;
     };
 
