@@ -262,9 +262,10 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
             m_viewport.imageWidth = static_cast<float>(m_image.width);
             m_viewport.imageHeight = static_cast<float>(m_image.height);
+            m_viewport.exposure = m_histogram.autoExposure;
             m_viewport.FitToWindow();
 
-            m_openTabs.push_back({cmdLinePath, 0.0f});
+            m_openTabs.push_back({cmdLinePath, m_viewport.exposure});
             m_activeTab = 0;
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
@@ -383,8 +384,8 @@ void App::OnCommand(int commandId)
     case IDM_FILE_RELOAD:
         if (m_activeTab >= 0)
         {
-            m_openTabs[m_activeTab].exposure = 0.0f;
             LoadFile(m_openTabs[m_activeTab].path);
+            m_openTabs[m_activeTab].exposure = m_viewport.exposure;
         }
         break;
 
@@ -581,7 +582,7 @@ bool App::LoadFile(const std::wstring& path)
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
-        m_viewport.exposure = 0.0f;
+        m_viewport.exposure = m_histogram.autoExposure;
         m_viewport.FitToWindow();
 
         wchar_t title[MAX_PATH + 16];
@@ -624,7 +625,7 @@ void App::OpenFile(const std::wstring& path)
         return;
 
     bool wasEmpty = m_openTabs.empty();
-    m_openTabs.push_back({path, 0.0f, {}, {}});
+    m_openTabs.push_back({path, m_viewport.exposure, {}, {}});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;

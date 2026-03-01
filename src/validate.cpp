@@ -10,6 +10,7 @@
 #include "image.h"
 
 #include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <filesystem>
 #include <string>
@@ -50,6 +51,51 @@ struct TestResult
     Expect expect = Expect::NoCrash;
 };
 
+// Synthetic test: 100 pixels (97 at luminance 0.5, 3 at luminance 8.0).
+// 97th percentile falls at luminance 0.5 → log2(0.5) = -1 → autoExposure = 1.0 EV.
+static TestResult RunAutoExposureTest()
+{
+    TestResult r;
+    r.relativePath = "(synthetic) auto-exposure percentile";
+    r.expect = Expect::MustLoad;
+
+    ImageData image;
+    image.width = 100;
+    image.height = 1;
+    image.pixels.resize(400);
+    for (int i = 0; i < 100; ++i)
+    {
+        float v = (i < 97) ? 0.5f : 8.0f;
+        float* px = &image.pixels[static_cast<size_t>(i) * 4];
+        px[0] = v;
+        px[1] = v;
+        px[2] = v;
+        px[3] = 1.0f;
+    }
+
+    HistogramData hist = HistogramComputer::Compute(image);
+    if (!hist.isValid)
+    {
+        r.error = "histogram not valid";
+        return r;
+    }
+
+    constexpr float kExpected = 1.0f;
+    if (std::abs(hist.autoExposure - kExpected) > 0.01f)
+    {
+        char buf[96];
+        snprintf(buf, sizeof(buf), "autoExposure=%.4f, expected=%.4f", hist.autoExposure, kExpected);
+        r.error = buf;
+        return r;
+    }
+
+    r.loaded = true;
+    r.width = image.width;
+    r.height = image.height;
+    r.passed = true;
+    return r;
+}
+
 static TestResult RunOne(const fs::path& file, const fs::path& baseDir)
 {
     TestResult r;
@@ -79,9 +125,25 @@ static TestResult RunOne(const fs::path& file, const fs::path& baseDir)
         }
 
         auto h0 = std::chrono::steady_clock::now();
-        HistogramComputer::Compute(image);
+        HistogramData hist = HistogramComputer::Compute(image);
         auto h1 = std::chrono::steady_clock::now();
         r.histMs = std::chrono::duration<double, std::milli>(h1 - h0).count();
+
+        if (!hist.isValid)
+        {
+            r.error = "histogram not valid";
+            r.passed = (r.expect == Expect::NoCrash);
+            return r;
+        }
+
+        if (!std::isfinite(hist.autoExposure) || hist.autoExposure < -20.0f || hist.autoExposure > 20.0f)
+        {
+            char buf[64];
+            snprintf(buf, sizeof(buf), "autoExposure out of range: %.2f", hist.autoExposure);
+            r.error = buf;
+            r.passed = false;
+            return r;
+        }
 
         r.passed = true;
     }
@@ -146,13 +208,6 @@ int RunValidation(const std::wstring& path, const std::wstring& outputFile)
         baseDir = target.parent_path();
         files.push_back(target);
     }
-    else
-    {
-        return 1;
-    }
-
-    if (files.empty())
-        return 1;
 
     FILE* out = _wfopen(outputFile.c_str(), L"w");
     if (!out)
@@ -161,6 +216,16 @@ int RunValidation(const std::wstring& path, const std::wstring& outputFile)
     fprintf(out, "EXRay validation: %zu file(s)\n\n", files.size());
 
     int passed = 0, failed = 0;
+
+    // Synthetic unit tests (no file I/O)
+    {
+        TestResult r = RunAutoExposureTest();
+        WriteResult(out, r);
+        if (r.passed)
+            ++passed;
+        else
+            ++failed;
+    }
 
     for (auto& f : files)
     {

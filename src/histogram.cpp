@@ -71,6 +71,31 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
         bCounts[toBin(px[2])]++;
     }
 
+    // Auto-exposure: find 97th percentile luminance and set EV so it maps to 1.0.
+    // This keeps almost all content visible without clipping, while leaving
+    // images already in [0,1] range essentially unchanged (exposure ≈ 0).
+    {
+        uint32_t totalLum = 0;
+        for (int i = 0; i < B; ++i)
+            totalLum += lumCounts[i];
+
+        if (totalLum > 0)
+        {
+            uint32_t p97Target = totalLum * 97 / 100;
+            uint32_t cumulative = 0;
+            for (int i = 0; i < B; ++i)
+            {
+                cumulative += lumCounts[i];
+                if (cumulative >= p97Target)
+                {
+                    float p97Log2 = result.log2Min + (static_cast<float>(i) / (B - 1)) * range;
+                    result.autoExposure = -p97Log2;
+                    break;
+                }
+            }
+        }
+    }
+
     // Normalize each channel to [0,1] using log scale to handle spiky distributions
     auto normalize = [](const std::array<uint32_t, B>& counts, std::array<float, B>& out)
     {

@@ -17,6 +17,7 @@ struct HistogramData
 
     float log2Min = -10.0f;
     float log2Max = 10.0f;
+    float autoExposure = 0.0f; // EV to bring 97th-percentile luminance to 1.0
     bool isValid = false;
 };
 
