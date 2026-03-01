@@ -167,6 +167,55 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     m_window.onDrop = [this](const wchar_t* path) { OpenFile(path); };
     m_window.onTabChange = [this](int index) { SwitchToTab(index); };
 
+    m_window.onContextMenu = [this](int screenX, int screenY)
+    {
+        if (!m_image.IsLoaded())
+            return;
+
+        POINT pt = {screenX, screenY};
+        ScreenToClient(m_window.GetRenderHwnd(), &pt);
+
+        float imgX, imgY;
+        m_viewport.ScreenToImage(static_cast<float>(pt.x), static_cast<float>(pt.y), imgX, imgY);
+
+        int ix = static_cast<int>(imgX);
+        int iy = static_cast<int>(imgY);
+
+        if (ix < 0 || iy < 0 || ix >= m_image.width || iy >= m_image.height)
+            return;
+
+        const float* px = m_image.PixelAt(ix, iy);
+
+        HMENU popup = CreatePopupMenu();
+        wchar_t label[256];
+        swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", px[0], px[1], px[2], px[3]);
+        AppendMenuW(popup, MF_STRING, 1, label);
+
+        int cmd = TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenX, screenY, 0, m_window.GetHwnd(),
+                                 nullptr);
+        DestroyMenu(popup);
+
+        if (cmd == 1)
+        {
+            wchar_t clipText[128];
+            swprintf_s(clipText, L"R: %.4f  G: %.4f  B: %.4f  A: %.4f", px[0], px[1], px[2], px[3]);
+
+            if (OpenClipboard(m_window.GetHwnd()))
+            {
+                EmptyClipboard();
+                size_t len = (wcslen(clipText) + 1) * sizeof(wchar_t);
+                HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+                if (hMem)
+                {
+                    memcpy(GlobalLock(hMem), clipText, len);
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                }
+                CloseClipboard();
+            }
+        }
+    };
+
     m_timing->windowVisible = StartupTiming::Now();
 
     if (!m_renderer.Initialize(m_window.GetRenderHwnd()))
@@ -412,6 +461,36 @@ void App::OnCommand(int commandId)
         }
         break;
     }
+
+    case IDM_VIEW_EXPOSURE_UP:
+        m_viewport.AdjustExposure(0.25f);
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+        break;
+
+    case IDM_VIEW_EXPOSURE_DOWN:
+        m_viewport.AdjustExposure(-0.25f);
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+        break;
+
+    case IDM_VIEW_GAMMA_UP:
+        if (!m_viewport.isHDR)
+        {
+            m_viewport.AdjustGamma(0.05f);
+            UpdateImageStatusText();
+            m_needsRedraw = true;
+        }
+        break;
+
+    case IDM_VIEW_GAMMA_DOWN:
+        if (!m_viewport.isHDR)
+        {
+            m_viewport.AdjustGamma(-0.05f);
+            UpdateImageStatusText();
+            m_needsRedraw = true;
+        }
+        break;
 
     case IDM_VIEW_FULLSCREEN:
         m_window.ToggleFullscreen();

@@ -22,6 +22,7 @@ class Window
     using KeyHandler = std::function<void(int vk)>;
     using DropHandler = std::function<void(const wchar_t* path)>;
     using TabChangeHandler = std::function<void(int newIndex)>;
+    using ContextMenuHandler = std::function<void(int screenX, int screenY)>;
 
     bool Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand, ResizeHandler onResize);
     void SetTitle(const wchar_t* title);
@@ -60,6 +61,7 @@ class Window
     KeyHandler onKeyDown;
     DropHandler onDrop;
     TabChangeHandler onTabChange;
+    ContextMenuHandler onContextMenu;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);

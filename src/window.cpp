@@ -22,7 +22,7 @@ static HMENU CreateAppMenu()
     AppendMenuW(fileMenu, MF_STRING, IDM_FILE_CLOSE, L"&Close\tCtrl+W");
     HMENU recentMenu = CreatePopupMenu();
     AppendMenuW(recentMenu, MF_STRING | MF_GRAYED, 0, L"(empty)");
-    AppendMenuW(fileMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu), L"Open &Recent");
+    AppendMenuW(fileMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(recentMenu), L"Open Recen&t");
     AppendMenuW(fileMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(fileMenu, MF_STRING, IDM_FILE_EXIT, L"E&xit\tAlt+F4");
     AppendMenuW(menuBar, MF_POPUP, reinterpret_cast<UINT_PTR>(fileMenu), L"&File");
@@ -30,6 +30,11 @@ static HMENU CreateAppMenu()
     HMENU viewMenu = CreatePopupMenu();
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FIT, L"&Fit to Window\tCtrl+0");
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_ACTUAL, L"&Actual Size\tCtrl+1");
+    AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_EXPOSURE_UP, L"Increase Exposure\t+");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_EXPOSURE_DOWN, L"Decrease Exposure\t\x2212");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GAMMA_UP, L"Increase Gamma\t]");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GAMMA_DOWN, L"Decrease Gamma\t[");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HISTOGRAM, L"&Histogram\tH");
 
@@ -327,6 +332,11 @@ void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)
 
     CheckMenuItem(menu, IDM_VIEW_HDR, MF_BYCOMMAND | (hdrEnabled ? MF_CHECKED : MF_UNCHECKED));
     EnableMenuItem(menu, IDM_VIEW_HDR, MF_BYCOMMAND | (hdrCapable ? MF_ENABLED : MF_GRAYED));
+
+    // Gamma adjustment is only meaningful in SDR mode
+    UINT gammaEnable = hdrEnabled ? MF_GRAYED : MF_ENABLED;
+    EnableMenuItem(menu, IDM_VIEW_GAMMA_UP, MF_BYCOMMAND | gammaEnable);
+    EnableMenuItem(menu, IDM_VIEW_GAMMA_DOWN, MF_BYCOMMAND | gammaEnable);
 }
 
 void Window::AddTab(int index, const wchar_t* label)
@@ -526,6 +536,15 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         if (self->onKeyDown)
             self->onKeyDown(static_cast<int>(wParam));
         return 0;
+
+    case WM_CONTEXTMENU:
+    {
+        int x = GET_X_LPARAM(lParam);
+        int y = GET_Y_LPARAM(lParam);
+        if (x != -1 && y != -1 && self->onContextMenu)
+            self->onContextMenu(x, y);
+        return 0;
+    }
 
     case WM_ERASEBKGND:
         return 1;
