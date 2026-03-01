@@ -75,8 +75,10 @@ class Renderer
     bool CreateHistogramShaders();
     void CreateRenderTarget();
     void ReleaseRenderTarget();
-    HDRDisplayInfo DetectHDR(IDXGIAdapter* adapter);
+    HDRDisplayInfo DetectHDR(HWND hwnd);
+    bool RefreshHDRInfo(HWND hwnd);
 
+    ComPtr<IDXGIAdapter> m_adapter;
     ComPtr<ID3D11Device1> m_device;
     ComPtr<ID3D11DeviceContext1> m_context;
     ComPtr<IDXGISwapChain1> m_swapchain;

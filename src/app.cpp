@@ -176,6 +176,26 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     };
 
     m_window.onDrop = [this](const wchar_t* path) { OpenFile(path); };
+
+    m_window.onDisplayChange = [this]()
+    {
+        bool changed = m_renderer.RefreshHDRInfo(m_window.GetRenderHwnd());
+        if (!changed)
+            return;
+        if (m_renderer.IsHDREnabled() && !m_renderer.GetHDRInfo().isHDRCapable)
+        {
+            m_renderer.SetHDRMode(false);
+            m_viewport.isHDR = false;
+            m_viewport.displayMaxNits = 80.0f;
+        }
+        else if (m_renderer.IsHDREnabled())
+        {
+            m_viewport.displayMaxNits = m_renderer.GetHDRInfo().maxLuminance;
+        }
+        m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+    };
     m_window.onTabChange = [this](int index) { SwitchToTab(index); };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
@@ -863,7 +883,7 @@ void App::UpdateImageStatusText()
     wchar_t infoBuf[192];
     if (m_viewport.isHDR)
     {
-        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR", m_image.width, m_image.height, m_viewport.exposure);
+        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height, m_viewport.exposure, m_viewport.displayMaxNits);
     }
     else
     {

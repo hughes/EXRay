@@ -33,6 +33,7 @@ class Window
     using DropHandler = std::function<void(const wchar_t* path)>;
     using TabChangeHandler = std::function<void(int newIndex)>;
     using ContextMenuHandler = std::function<void(int screenX, int screenY)>;
+    using DisplayChangeHandler = std::function<void()>;
 
     bool Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand, ResizeHandler onResize);
     void SetTitle(const wchar_t* title);
@@ -72,8 +73,9 @@ class Window
     PinchZoomHandler   onPinchZoom;
     KeyHandler         onKeyDown;
     DropHandler        onDrop;
-    TabChangeHandler   onTabChange;
-    ContextMenuHandler onContextMenu;
+    TabChangeHandler      onTabChange;
+    ContextMenuHandler    onContextMenu;
+    DisplayChangeHandler  onDisplayChange;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -102,6 +104,9 @@ class Window
     int  m_prevTouchCX       = 0;
     int  m_prevTouchCY       = 0;
     float m_prevTouchDist    = 0.0f;
+
+    // Monitor tracking for display change detection
+    HMONITOR m_lastMonitor = nullptr;
 
     // Fullscreen state
     bool m_isFullscreen = false;

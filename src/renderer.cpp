@@ -264,14 +264,13 @@ bool Renderer::Initialize(HWND hwnd)
     ComPtr<IDXGIDevice1> dxgiDevice;
     m_device.As(&dxgiDevice);
 
-    ComPtr<IDXGIAdapter> adapter;
-    dxgiDevice->GetAdapter(&adapter);
+    dxgiDevice->GetAdapter(&m_adapter);
 
     ComPtr<IDXGIFactory2> factory;
-    adapter->GetParent(IID_PPV_ARGS(&factory));
+    m_adapter->GetParent(IID_PPV_ARGS(&factory));
 
     // Detect HDR display capabilities
-    m_hdrInfo = DetectHDR(adapter.Get());
+    m_hdrInfo = DetectHDR(hwnd);
 
     // Create swapchain
     RECT rc;
@@ -500,12 +499,21 @@ bool Renderer::UploadImage(const ImageData& image)
     return true;
 }
 
-HDRDisplayInfo Renderer::DetectHDR(IDXGIAdapter* adapter)
+HDRDisplayInfo Renderer::DetectHDR(HWND hwnd)
 {
     HDRDisplayInfo info;
+    if (!m_adapter)
+        return info;
+
+    HMONITOR hmon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+
     ComPtr<IDXGIOutput> output;
-    if (SUCCEEDED(adapter->EnumOutputs(0, &output)))
+    for (UINT i = 0; m_adapter->EnumOutputs(i, output.ReleaseAndGetAddressOf()) != DXGI_ERROR_NOT_FOUND; ++i)
     {
+        DXGI_OUTPUT_DESC desc;
+        if (FAILED(output->GetDesc(&desc)) || desc.Monitor != hmon)
+            continue;
+
         ComPtr<IDXGIOutput6> output6;
         if (SUCCEEDED(output.As(&output6)))
         {
@@ -518,8 +526,18 @@ HDRDisplayInfo Renderer::DetectHDR(IDXGIAdapter* adapter)
                 info.isHDRCapable = (desc1.MaxLuminance > 100.0f);
             }
         }
+        break;
     }
     return info;
+}
+
+bool Renderer::RefreshHDRInfo(HWND hwnd)
+{
+    HDRDisplayInfo newInfo = DetectHDR(hwnd);
+    bool changed = (newInfo.isHDRCapable != m_hdrInfo.isHDRCapable ||
+                    newInfo.maxLuminance != m_hdrInfo.maxLuminance);
+    m_hdrInfo = newInfo;
+    return changed;
 }
 
 bool Renderer::SetHDRMode(bool enable)

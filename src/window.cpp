@@ -113,6 +113,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     if (!m_hwnd)
         return false;
 
+    m_lastMonitor = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+
     // Create common controls (status bar + tab bar)
     INITCOMMONCONTROLSEX icex = {sizeof(icex), ICC_BAR_CLASSES | ICC_TAB_CLASSES};
     InitCommonControlsEx(&icex);
@@ -477,6 +479,18 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
             SendMessageW(self->m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
         }
         return 0;
+    }
+
+    case WM_WINDOWPOSCHANGED:
+    {
+        HMONITOR mon = MonitorFromWindow(hwnd, MONITOR_DEFAULTTONEAREST);
+        if (mon != self->m_lastMonitor)
+        {
+            self->m_lastMonitor = mon;
+            if (self->onDisplayChange)
+                self->onDisplayChange();
+        }
+        break; // let DefWindowProcW dispatch WM_SIZE / WM_MOVE
     }
 
     case WM_ERASEBKGND:
