@@ -70,13 +70,14 @@ class Renderer
     bool SetHDRMode(bool enable);
     const HDRDisplayInfo& GetHDRInfo() const { return m_hdrInfo; }
 
+    bool RefreshHDRInfo(HWND hwnd);
+
   private:
     bool CreateShaders();
     bool CreateHistogramShaders();
     void CreateRenderTarget();
     void ReleaseRenderTarget();
     HDRDisplayInfo DetectHDR(HWND hwnd);
-    bool RefreshHDRInfo(HWND hwnd);
 
     ComPtr<IDXGIAdapter> m_adapter;
     ComPtr<ID3D11Device1> m_device;
