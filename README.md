@@ -16,7 +16,7 @@ A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, an
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
 
-## Controls
+## Controls and Hotkeys
 
 | Action | Input |
 |---|---|

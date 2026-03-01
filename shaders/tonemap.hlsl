@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+
 // EXRay tone mapping shader
 // Vertex shader: transforms image quad by pan/zoom matrix
 // Pixel shader: applies exposure and gamma for display

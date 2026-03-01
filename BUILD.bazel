@@ -9,6 +9,9 @@ genrule(
         "src/resource.h",
     ],
     outs = ["app.res"],
+    # NOTE: This path is machine-specific (8.3 short name for the Windows SDK rc.exe).
+    # CI workflows (.github/workflows/) auto-detect and patch it before building.
+    # Locally, update this to match your Windows SDK installation.
     cmd_bat = "C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\100261~1.0\\x64\\rc.exe /nologo /I . /fo $@ $(location resources/app.rc)",
 )
 

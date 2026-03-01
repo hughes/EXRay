@@ -3,7 +3,7 @@
 ## 1. Polish & Completeness
 
 - [x] About dialog — version string, links, license info
-- [ ] File association — register as handler for `.exr` files
+- [x] File association — register as handler for `.exr` files (via Inno Setup installer)
 - [x] Drag-and-drop — drop `.exr` files onto window to open
 - [x] Error handling UX — dimension sanity check, OOM message, catch-all for unknown exceptions
 - [x] Recent files in File menu
@@ -11,6 +11,7 @@
 - [x] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
 - [ ] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
 - [ ] Update check — background WinHTTP GET to `api.github.com/repos/hughes/EXRay/releases/latest`, compare `tag_name` semver to current version. If newer: asterisk on Help menu, "Update available" line in About dialog. No interruptions. Requires at least one published release to test against.
+- [x] Make sure all environment-specific stuff referencing the local development paths is removed.
 
 ## 2. Testing
 
@@ -27,7 +28,7 @@
 - [x] Pick a license — GPLv3
 - [x] Add `LICENSE` file to repo root
 - [x] Verify OpenEXR license (BSD-3-Clause) compatibility — confirmed, added `THIRD_PARTY_LICENSES`
-- [ ] Add license headers or NOTICE file as needed
+- [x] Add license headers or NOTICE file as needed
 
 ## 4. Build & CI/CD
 
@@ -47,15 +48,15 @@
 - [ ] Release CI produces signed standalone `EXRay.exe`
 - [x] Verify no runtime DLL dependencies beyond system libs — all system DLLs + MSVC runtime (bundle VC++ Redist or statically link with `/MT`)
 - [x] Create `CHANGELOG.md`
-- [ ] Provide both portable `.zip` and installer
+- [x] Provide both portable `.zip` and installer — Inno Setup `.iss` in `installer/`
 
 ## 7. Windows Installer
 
-- [ ] Choose installer format (MSIX for Store, plus traditional WiX/Inno Setup for GitHub/WinGet)
-- [ ] Start menu shortcut
-- [ ] `.exr` file association
-- [ ] Uninstall entry in Add/Remove Programs
-- [ ] Optional: "Open with" context menu integration
+- [x] Choose installer format — Inno Setup for GitHub/WinGet (MSIX separate for Store)
+- [x] Start menu shortcut
+- [x] `.exr` file association (user-selectable task)
+- [x] Uninstall entry in Add/Remove Programs
+- [x] Optional: "Open with" context menu integration
 
 ## 8. WinGet (Windows Package Manager)
 
@@ -78,8 +79,7 @@
 ## 10. Documentation
 
 - [ ] Polish `README.md` — feature list, screenshots/GIF, build instructions, download link
-- [ ] GitHub Pages site or landing page (e.g. `hughes.github.io/EXRay`)
-- [ ] Keyboard shortcuts / controls reference
+- [x] Keyboard shortcuts / controls reference
 - [ ] Supported EXR features and limitations
 
 ## Suggested Priority Order
