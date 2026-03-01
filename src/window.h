@@ -11,6 +11,12 @@
 #include <string>
 #include <vector>
 
+// Window class name — used by FindWindow for single-instance detection
+static const wchar_t* const kWindowClass = L"EXRay_Window";
+
+// WM_COPYDATA tag for file-open requests from a second instance ('EXR1' in ASCII)
+static constexpr ULONG_PTR kCopyDataOpenFile = 0x45585231;
+
 class Window
 {
   public:

@@ -9,7 +9,6 @@
 #include <shellapi.h>
 #include <windowsx.h>
 
-static const wchar_t* const kClassName = L"EXRay_Window";
 static const wchar_t* const kRenderClassName = L"EXRay_RenderArea";
 
 static HMENU CreateAppMenu()
@@ -88,7 +87,7 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     wc.hIconSm = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     wc.hbrBackground = nullptr;
-    wc.lpszClassName = kClassName;
+    wc.lpszClassName = kWindowClass;
 
     if (!RegisterClassExW(&wc))
         return false;
@@ -106,7 +105,7 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
 
     HMENU menu = CreateAppMenu();
 
-    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kClassName, L"EXRay", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kWindowClass, L"EXRay", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
                              1280, 720, nullptr, menu, hInstance, this);
 
     if (!m_hwnd)
@@ -435,6 +434,17 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         if (self->onDrop)
             self->onDrop(path);
         return 0;
+    }
+
+    case WM_COPYDATA:
+    {
+        auto* cds = reinterpret_cast<COPYDATASTRUCT*>(lParam);
+        if (cds->dwData == kCopyDataOpenFile && cds->lpData && self->onDrop)
+        {
+            self->onDrop(static_cast<const wchar_t*>(cds->lpData));
+            return TRUE;
+        }
+        return FALSE;
     }
 
     case WM_ACTIVATE:
