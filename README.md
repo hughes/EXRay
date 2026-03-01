@@ -79,7 +79,30 @@ bazelisk build //:EXRay
 
 The built binary is at `bazel-bin/EXRay.exe`.
 
-**Requirements:** Windows 10+, MSVC (Visual Studio 2022 or Build Tools), Windows SDK, [Bazelisk](https://github.com/bazelbuild/bazelisk).
+#### Requirements
+
+- **[Bazelisk](https://github.com/bazelbuild/bazelisk)** — the recommended Bazel launcher. Install via [WinGet](https://winget.run/): `winget install Bazel.Bazelisk`
+- **MSVC** — Visual Studio 2019/2022 or Build Tools. When installing, make sure to include:
+  - Workload: **"C++ build tools"** (or "Desktop development with C++") — this includes `cl.exe`, `link.exe`, etc. The default Build Tools install does *not* include the compiler.
+  - Component: **Windows 10 SDK** (any recent version, e.g. 10.0.19041.0) — the SDK headers and libraries are required; the bin-only tools installed by some other packages are not sufficient.
+- **Windows 10+**
+
+#### Machine-specific rc.exe path
+
+`BUILD.bazel` contains a hardcoded path to `rc.exe` (the Windows resource compiler) using 8.3 short names. You may need to update it to match your SDK version:
+
+```python
+# In BUILD.bazel, the genrule for app_resources:
+cmd_bat = "C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\<SDK_VERSION>\\x64\\rc.exe ..."
+```
+
+To find the right 8.3 short name for your installed SDK version, run:
+
+```
+dir /x "C:\Program Files (x86)\Windows Kits\10\bin"
+```
+
+CI workflows auto-detect and patch this path before building.
 
 ## License
 
