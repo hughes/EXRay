@@ -80,6 +80,7 @@ class Window
     static LRESULT CALLBACK RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
 
     void LayoutChildren();
+    void UpdateStatusBarParts();
 
     HWND m_hwnd = nullptr;
     HWND m_renderArea = nullptr;

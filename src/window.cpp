@@ -120,15 +120,16 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     m_statusBar = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE | SBARS_SIZEGRIP, 0, 0, 0, 0,
                                   m_hwnd, nullptr, hInstance, nullptr);
 
-    // 3 parts: pixel coords | RGBA values | image info
-    int parts[] = {120, 420, -1};
-    SendMessageW(m_statusBar, SB_SETPARTS, 3, reinterpret_cast<LPARAM>(parts));
+    // 3 parts: pixel coords | RGBA values | image info (DPI-scaled)
+    UpdateStatusBarParts();
 
     // Create tab bar between menu and render area
     m_tabBar = CreateWindowExW(0, WC_TABCONTROLW, nullptr,
                                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FOCUSNEVER, 0, 0, 0, 0, m_hwnd, nullptr,
                                hInstance, nullptr);
-    SendMessageW(m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), FALSE);
+    // Match the tab bar font to the status bar so they look consistent across systems
+    HFONT statusFont = reinterpret_cast<HFONT>(SendMessageW(m_statusBar, WM_GETFONT, 0, 0));
+    SendMessageW(m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(statusFont), FALSE);
 
     // Create render area child window — D3D11 swapchain targets this, not the main window
     m_renderArea = CreateWindowExW(0, kRenderClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
@@ -181,6 +182,13 @@ void Window::LayoutChildren()
 
     if (m_renderArea)
         MoveWindow(m_renderArea, 0, tabH, totalW, renderH, TRUE);
+}
+
+void Window::UpdateStatusBarParts()
+{
+    int dpi = GetDpiForWindow(m_hwnd);
+    int parts[] = {MulDiv(120, dpi, 96), MulDiv(420, dpi, 96), -1};
+    SendMessageW(m_statusBar, SB_SETPARTS, 3, reinterpret_cast<LPARAM>(parts));
 }
 
 int Window::GetStatusBarHeight() const
@@ -453,6 +461,23 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         if (LOWORD(wParam) != WA_INACTIVE && self->m_renderArea)
             SetFocus(self->m_renderArea);
         return 0;
+
+    case WM_DPICHANGED:
+    {
+        // Reposition to the rect Windows suggests for the new DPI
+        RECT* r = reinterpret_cast<RECT*>(lParam);
+        SetWindowPos(hwnd, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
+                     SWP_NOZORDER | SWP_NOACTIVATE);
+        // Re-scale status bar parts and sync tab bar font for the new DPI
+        if (self->m_statusBar)
+            self->UpdateStatusBarParts();
+        if (self->m_statusBar && self->m_tabBar)
+        {
+            HFONT f = reinterpret_cast<HFONT>(SendMessageW(self->m_statusBar, WM_GETFONT, 0, 0));
+            SendMessageW(self->m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
+        }
+        return 0;
+    }
 
     case WM_ERASEBKGND:
         return 1;
