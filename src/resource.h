@@ -5,7 +5,7 @@
 #define EXRAY_VERSION_MINOR 1
 #define EXRAY_VERSION_PATCH 0
 #define EXRAY_VERSION_STR "0.1.0"
-#define EXRAY_COPYRIGHT "Copyright \xA9 2025 EXRay contributors"
+#define EXRAY_COPYRIGHT "Copyright \xA9 2026 EXRay contributors"
 
 // Wide-string versions for C++ code
 #define EXRAY_WIDEN2(x) L##x

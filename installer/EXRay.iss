@@ -66,3 +66,19 @@ Root: HKA; Subkey: "Software\Classes\EXRay.EXRFile\DefaultIcon"; ValueType: stri
 Root: HKA; Subkey: "Software\Classes\EXRay.EXRFile\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#MyAppExeName}"" ""%1"""; Tasks: fileassoc
 ; Friendly name in "Open with" menu
 Root: HKA; Subkey: "Software\Classes\Applications\{#MyAppExeName}"; ValueType: string; ValueName: "FriendlyAppName"; ValueData: "{#MyAppName}"; Flags: uninsdeletekey
+
+[Code]
+function SHChangeNotify(wEventId: Integer; uFlags: Integer; dwItem1: Integer; dwItem2: Integer): Integer;
+  external 'SHChangeNotify@shell32.dll stdcall';
+
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  Dummy: Integer;
+begin
+  if CurStep = ssPostInstall then
+  begin
+    { SHCNE_ASSOCCHANGED = $08000000, SHCNF_IDLIST = $0000 }
+    Dummy := 0;
+    SHChangeNotify($08000000, $0000, Dummy, Dummy);
+  end;
+end;
