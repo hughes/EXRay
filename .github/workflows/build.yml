@@ -45,3 +45,21 @@ jobs:
       - name: Build
         shell: cmd
         run: bazelisk build //:EXRay
+
+      - name: Cache test images
+        uses: actions/cache@v4
+        with:
+          path: tests/.openexr-images.zip
+          key: openexr-test-images-e38ffb07
+
+      - name: Fetch test images
+        shell: bash
+        run: bash tests/fetch_test_images.sh
+
+      - name: Run validation tests
+        shell: bash
+        run: |
+          ./bazel-bin/EXRay.exe --validate tests/images tests/validate_results.txt
+          result=$?
+          cat tests/validate_results.txt
+          exit $result

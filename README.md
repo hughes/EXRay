@@ -16,6 +16,25 @@ A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, an
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
 
+## Supported EXR Features
+
+| Feature | Support |
+|---|---|
+| Scanline images | Full |
+| Tiled images | Full |
+| All compressions (PIZ, ZIP, ZIPS, RLE, PXR24, B44, B44A, DWAA, DWAB, HTJ2K) | Full |
+| Half-float (16-bit) pixels | Full (converted to 32-bit internally) |
+| Float (32-bit) pixels | Full |
+| Luminance/chroma (Y/C) images | Full (auto-converted to RGBA) |
+| Data window offsets | Full |
+| Multi-part images | First part only |
+| Multi-view / stereo | Default view only |
+| Deep images | Not supported |
+| Integer pixel types | Not supported |
+| Multi-resolution (mipmap/ripmap) | Not supported |
+| Arbitrary channels (Z, normals, IDs) | Not supported (RGBA only) |
+| Chromaticities / color profiles | Not applied (displayed as Rec. 709) |
+
 ## Controls and Hotkeys
 
 | Action | Input |
