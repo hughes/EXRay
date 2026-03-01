@@ -1,0 +1,52 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Launch EXRay",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bazel-bin/EXRay.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build EXRay"
+        },
+        {
+            "name": "Launch EXRay (with file)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bazel-bin/EXRay.exe",
+            "args": [
+                "${input:exrFile}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build EXRay"
+        },
+        {
+            "name": "Debug EXRay",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bazel-bin/EXRay.exe",
+            "args": [],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build EXRay (debug)"
+        },
+        {
+            "name": "Debug EXRay (with file)",
+            "type": "cppvsdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/bazel-bin/EXRay.exe",
+            "args": [
+                "${input:exrFile}"
+            ],
+            "cwd": "${workspaceFolder}",
+            "preLaunchTask": "Build EXRay (debug)"
+        }
+    ],
+    "inputs": [
+        {
+            "id": "exrFile",
+            "type": "promptString",
+            "description": "Path to EXR file to open"
+        }
+    ]
+}

@@ -1,0 +1,94 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "Build EXRay",
+            "type": "shell",
+            "command": "bazelisk",
+            "args": [
+                "build",
+                "//:EXRay"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            },
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent",
+                "revealProblems": "onProblem"
+            }
+        },
+        {
+            "label": "Build EXRay (debug)",
+            "type": "shell",
+            "command": "bazelisk",
+            "args": [
+                "build",
+                "--config=dbg",
+                "//:EXRay"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$msCompile"
+            ]
+        },
+        {
+            "label": "Build Installer",
+            "type": "shell",
+            "command": "bazelisk",
+            "args": [
+                "build",
+                "-c", "opt",
+                "//:EXRay"
+            ],
+            "group": "build",
+            "problemMatcher": [
+                "$msCompile"
+            ],
+            "presentation": {
+                "reveal": "silent",
+                "revealProblems": "onProblem"
+            },
+            "dependsOrder": "sequence"
+        },
+        {
+            "label": "Stage Installer",
+            "type": "shell",
+            "command": "cp",
+            "args": [
+                "bazel-out/x64_windows-opt/bin/EXRay.exe",
+                "installer/"
+            ],
+            "group": "build",
+            "dependsOn": "Build Installer"
+        },
+        {
+            "label": "Run Tests",
+            "type": "shell",
+            "command": "./bazel-bin/EXRay.exe",
+            "args": [
+                "--validate",
+                "tests/images",
+                "tests/validate_results.txt"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": true
+            },
+            "dependsOn": "Build EXRay",
+            "problemMatcher": []
+        },
+        {
+            "label": "Clean",
+            "type": "shell",
+            "command": "bazelisk",
+            "args": [
+                "clean"
+            ],
+            "group": "build"
+        }
+    ]
+}

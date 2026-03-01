@@ -6,7 +6,6 @@ bazel-testlogs/
 /bazel-*
 
 # IDE
-.vscode/
 *.swp
 *.swo
 *~
@@ -18,6 +17,11 @@ bazel-testlogs/
 *.ilk
 *.lib
 *.exp
+
+# Test artifacts (fetched by tests/fetch_test_images.sh)
+tests/images/
+tests/.openexr-images.zip
+validate_results.txt
 
 # OS
 Thumbs.db
