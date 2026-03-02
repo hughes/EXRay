@@ -42,10 +42,10 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
     if (minPos > maxPos)
         return result;
 
-    result.log2Min = std::floor(std::log2((std::max)(minPos, 1e-10f)));
-    result.log2Max = std::ceil(std::log2((std::max)(maxPos, 1e-10f)));
-    if (result.log2Max <= result.log2Min)
-        result.log2Max = result.log2Min + 1.0f;
+    // Fixed range so the histogram axis is stable across all images.
+    // Asymmetric to keep crush visible (~7%) and blowout narrow (~20%).
+    result.log2Min = -16.0f;
+    result.log2Max = 4.0f;
 
     float range = result.log2Max - result.log2Min;
     float rangeInv = 1.0f / range;

@@ -155,23 +155,29 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
     bgImage = saturate(bgImage); // clamp to [0,1] — no-op in SDR, caps HDR
 
     float barY = 1.0 - localY;
-    int bin = clamp(int(localX * (binCount - 1)), 0, binCount - 1);
     float range = log2Max - log2Min;
-
-    // --- Exposure zones in log2 scene space ---
     float rangeInv = (range > 0.0) ? 1.0 / range : 0.0;
 
+    // Shift histogram in integer bin space — no float subtraction, no jitter.
+    int shiftBins = int(round(tfExposure * rangeInv * float(binCount - 1)));
+    int pixelBin  = int(localX * float(binCount - 1) + 0.5);
+    int srcBin    = pixelBin - shiftBins;
+    bool validBin = (srcBin >= 0 && srcBin < binCount);
+    int bin       = clamp(srcBin, 0, binCount - 1);
+
+    // --- Exposure zones (fixed — represent display output boundaries) ---
+
     // Dark crush: ~1% output brightness
-    float log2Black = (1.0 / tfGamma) * log2(0.01) - tfExposure;
+    float log2Black = (1.0 / tfGamma) * log2(0.01);
     float blackX = (log2Black - log2Min) * rangeInv;
 
-    // SDR white: scene value that maps to 1.0 output
-    float sdrWhiteX = (-tfExposure - log2Min) * rangeInv;
+    // SDR white: scene value 1.0 maps to output 1.0
+    float sdrWhiteX = (-log2Min) * rangeInv;
 
     // HDR clip: display max luminance
     float hdrWhiteX = sdrWhiteX;
     if (tfIsHDR && sdrWhiteNits > 0.0)
-        hdrWhiteX = (log2(displayMaxNits / sdrWhiteNits) - tfExposure - log2Min) * rangeInv;
+        hdrWhiteX = (log2(displayMaxNits / sdrWhiteNits) - log2Min) * rangeInv;
 
     // Background brightness per zone — crushed zone stays black,
     // normal range is lifted so the dark zone stands out by contrast
@@ -194,7 +200,8 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
     // Histogram overlay color + blend weight (alpha used as mix factor below)
     float4 color = float4(zoneBg, zoneBg, zoneBg, 0.65);
 
-    // --- Draw histogram bars ---
+    // --- Draw histogram bars (only where shifted bin is in range) ---
+    if (validBin) {
     if (channelMode == 4) {
         float rVal = histogramTex.Load(int3(bin, 1, 0));
         float gVal = histogramTex.Load(int3(bin, 2, 0));
@@ -219,6 +226,7 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
         if (barY < val) {
             color = float4(barColor * barScale, 0.75);
         }
+    }
     }
 
     // Composite in-shader: replaces hardware alpha blend with clamped background
