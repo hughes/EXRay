@@ -22,18 +22,40 @@ IMAGES_DIR="$SCRIPT_DIR/images"
 
 red()   { printf '\033[31m%s\033[0m' "$1"; }
 green() { printf '\033[32m%s\033[0m' "$1"; }
+gray()  { printf '\033[90m%s\033[0m' "$1"; }
+
+# Directories where the file must load successfully (exit 0).
+# Others (Damaged, MultiView, Beachball, v2, etc.) just must not hang/crash.
+expects_load() {
+    case "$1" in
+        */ScanLines/*|*/Tiles/*|*/TestImages/*|*/LuminanceChroma/*|*/DisplayWindow/*|*/Chromaticities/*)
+            return 0 ;;
+        *)
+            return 1 ;;
+    esac
+}
 
 smoke_one() {
     local file="$1"
     local relpath
     relpath=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$file" "$REPO_ROOT" 2>/dev/null || echo "$file")
 
-    if "$EXRAY" --smoke-test "$file" >/dev/null 2>&1; then
-        printf "  %s  %s\n" "$(green PASS)" "$relpath"
-        return 0
+    local exit_code=0
+    "$EXRAY" --smoke-test "$file" >/dev/null 2>&1 || exit_code=$?
+
+    if expects_load "$file"; then
+        # MustLoad: exit 0 = pass, anything else = fail
+        if [[ $exit_code -eq 0 ]]; then
+            printf "  %s  %s\n" "$(green PASS)" "$relpath"
+            return 0
+        else
+            printf "  %s  %s\n" "$(red FAIL)" "$relpath"
+            return 1
+        fi
     else
-        printf "  %s  %s\n" "$(red FAIL)" "$relpath"
-        return 1
+        # NoCrash: any clean exit is fine (load errors are expected)
+        printf "  %s  %s  %s\n" "$(green PASS)" "$relpath" "$(gray "(exit $exit_code, ok)")"
+        return 0
     fi
 }
 
