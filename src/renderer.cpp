@@ -251,7 +251,15 @@ bool Renderer::Initialize(HWND hwnd)
                                    _countof(featureLevels), D3D11_SDK_VERSION, &baseDevice, nullptr, &baseContext);
 
     if (FAILED(hr))
-        return false;
+    {
+        // Fall back to WARP (software rasterizer) — works on machines with no GPU,
+        // including CI runners.
+        hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_WARP, nullptr, flags, featureLevels, _countof(featureLevels),
+                               D3D11_SDK_VERSION, &baseDevice, nullptr, &baseContext);
+        if (FAILED(hr))
+            return false;
+        OutputDebugStringW(L"[EXRay] Using WARP software rasterizer (no hardware GPU available)\n");
+    }
 
     hr = baseDevice.As(&m_device);
     if (FAILED(hr))
