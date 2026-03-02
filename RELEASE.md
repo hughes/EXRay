@@ -19,8 +19,8 @@
 - [ ] Manual test matrix — zoom, pan, exposure, histogram, tabs, fullscreen
 - [ ] Manual test matrix — HDR display, non-HDR display, multi-monitor, high-DPI
 - [x] Crash/fuzz resilience — garbage and edge-case EXR files don't crash or hang (validated by `--validate` against 3 fuzzed + 5 graceful-failure files)
-- [ ] Multi-GPU/driver testing — NVIDIA, AMD, Intel
-- [ ] Performance benchmarks — time to open/render various file sizes (back up "insanely fast" claim)
+- [x] Multi-GPU/driver testing — NVIDIA, AMD, Intel (verified NVIDIA, Intel)
+- [x] Performance benchmarks — time to open/render various file sizes (`--benchmark` flag, JSON output, CI artifact, `show_benchmark.sh` / `compare_benchmark.sh`)
 - [x] Automated headless validation — `EXRay.exe --validate tests/images/` (load + histogram on ~50 OpenEXR test images, CI-friendly)
 - [ ] Automated GUI smoke test — `tests/smoke_test.sh` launches app per file, verifies window title + no crash (requires display)
 

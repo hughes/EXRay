@@ -5,6 +5,7 @@
 #endif
 
 #include "app.h"
+#include "benchmark.h"
 #include "timing.h"
 #include "validate.h"
 
@@ -61,6 +62,70 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
                 outputFile = L"validate_results.txt";
 
             return RunValidation(imagesPath, outputFile);
+        }
+    }
+
+    // --benchmark <images_path> <output_file> [iterations]: headless benchmark mode.
+    // Loads each MustLoad .exr multiple times, writes JSON results to <output_file>,
+    // exits with 0 (success) or 1 (error).
+    {
+        std::wstring cmdLine = lpCmdLine ? lpCmdLine : L"";
+        const std::wstring flag = L"--benchmark";
+        auto pos = cmdLine.find(flag);
+        if (pos != std::wstring::npos)
+        {
+            std::wstring rest = cmdLine.substr(pos + flag.size());
+            size_t start = rest.find_first_not_of(L" \t");
+            if (start != std::wstring::npos)
+                rest = rest.substr(start);
+
+            std::wstring imagesPath, outputFile;
+            int iterations = 5;
+
+            size_t sep = rest.find(L' ');
+            if (sep != std::wstring::npos)
+            {
+                imagesPath = rest.substr(0, sep);
+                std::wstring remainder = rest.substr(sep + 1);
+                size_t s = remainder.find_first_not_of(L" \t");
+                if (s != std::wstring::npos)
+                    remainder = remainder.substr(s);
+
+                size_t sep2 = remainder.find(L' ');
+                if (sep2 != std::wstring::npos)
+                {
+                    outputFile = remainder.substr(0, sep2);
+                    std::wstring iterStr = remainder.substr(sep2 + 1);
+                    size_t s2 = iterStr.find_first_not_of(L" \t");
+                    if (s2 != std::wstring::npos)
+                    {
+                        iterStr = iterStr.substr(s2);
+                        int n = _wtoi(iterStr.c_str());
+                        if (n > 0)
+                            iterations = n;
+                    }
+                }
+                else
+                {
+                    outputFile = remainder;
+                }
+            }
+            else
+            {
+                imagesPath = rest;
+            }
+
+            auto stripQuotes = [](std::wstring& s) {
+                if (s.size() >= 2 && s.front() == L'"' && s.back() == L'"')
+                    s = s.substr(1, s.size() - 2);
+            };
+            stripQuotes(imagesPath);
+            stripQuotes(outputFile);
+
+            if (outputFile.empty())
+                outputFile = L"benchmark_results.json";
+
+            return RunBenchmark(imagesPath, outputFile, iterations);
         }
     }
 

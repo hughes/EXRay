@@ -8,6 +8,7 @@
 
 #include "histogram.h"
 #include "image.h"
+#include "test_util.h"
 
 #include <chrono>
 #include <cmath>
@@ -18,25 +19,6 @@
 #include <windows.h>
 
 namespace fs = std::filesystem;
-
-// Determine whether a file is expected to load successfully based on its
-// parent directory name.  Directories containing standard scanline, tiled,
-// and single-channel images should always load through RgbaInputFile.
-// Everything else (multi-part, deep, damaged, multi-view) just needs to
-// not crash — a graceful error is fine.
-enum class Expect { MustLoad, NoCrash };
-
-static Expect ExpectationFor(const fs::path& filePath)
-{
-    for (auto p = filePath.parent_path(); p.has_filename(); p = p.parent_path())
-    {
-        std::string dir = p.filename().string();
-        if (dir == "ScanLines" || dir == "Tiles" || dir == "TestImages" ||
-            dir == "LuminanceChroma" || dir == "DisplayWindow" || dir == "Chromaticities")
-            return Expect::MustLoad;
-    }
-    return Expect::NoCrash;
-}
 
 struct TestResult
 {

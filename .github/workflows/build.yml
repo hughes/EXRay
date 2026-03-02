@@ -63,3 +63,23 @@ jobs:
           result=$?
           cat tests/validate_results.txt
           exit $result
+
+      - name: GUI smoke test
+        continue-on-error: true
+        shell: bash
+        run: bash tests/smoke_test.sh tests/images
+
+      - name: Run benchmark
+        shell: bash
+        run: |
+          ./bazel-bin/EXRay.exe --benchmark tests/images tests/benchmark_results.json
+          echo "=== Benchmark Results ==="
+          cat tests/benchmark_results.json
+
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: tests/benchmark_results.json
+          retention-days: 90

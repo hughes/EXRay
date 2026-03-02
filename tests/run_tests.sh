@@ -24,6 +24,7 @@ CATEGORIES=()
 for arg in "$@"; do
     case "$arg" in
         --gui) MODE="gui" ;;
+        --benchmark) MODE="benchmark" ;;
         --all) MODE="all" ;;
         --help|-h)
             echo "Usage: $0 [--gui|--all] [category...]"
@@ -31,6 +32,7 @@ for arg in "$@"; do
             echo "Modes:"
             echo "  (default)   Headless --validate mode (CI-friendly)"
             echo "  --gui       GUI smoke test (requires display)"
+            echo "  --benchmark Performance benchmark (JSON output)"
             echo "  --all       Both validate and GUI"
             echo ""
             echo "Categories: scanline tiled lumachroma edge displaywindow multipart multiview deep damaged"
@@ -91,6 +93,17 @@ fi
 if [[ "$MODE" == "gui" || "$MODE" == "all" ]]; then
     echo "=== GUI smoke test ==="
     bash "$SCRIPT_DIR/smoke_test.sh" "$IMAGES_DIR" || result=1
+    echo ""
+fi
+
+if [[ "$MODE" == "benchmark" ]]; then
+    echo "=== Performance benchmark ==="
+    BENCH_FILE="$SCRIPT_DIR/benchmark_results.json"
+    "$EXRAY" --benchmark "$IMAGES_DIR" "$BENCH_FILE"
+    if [[ -f "$BENCH_FILE" ]]; then
+        cat "$BENCH_FILE"
+        rm -f "$BENCH_FILE"
+    fi
     echo ""
 fi
 
