@@ -2,7 +2,7 @@
 
 A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, and built for people who just want to see their images.
 
-<!-- TODO: hero screenshot or GIF here -->
+![EXRay screenshot](screenshot.png)
 
 ## Features
 

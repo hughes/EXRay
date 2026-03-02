@@ -15,9 +15,9 @@
 
 ## 2. Testing
 
-- [ ] Manual test matrix — open various EXR files (single-part, multi-part, tiled, deep, different compressions, huge, tiny, malformed)
-- [ ] Manual test matrix — zoom, pan, exposure, histogram, tabs, fullscreen
-- [ ] Manual test matrix — HDR display, non-HDR display, multi-monitor, high-DPI
+- [x] Manual test matrix — open various EXR files (single-part, multi-part, tiled, deep, different compressions, huge, tiny, malformed)
+- [x] Manual test matrix — zoom, pan, exposure, histogram, tabs, fullscreen
+- [x] Manual test matrix — HDR display, non-HDR display, multi-monitor, high-DPI
 - [x] Crash/fuzz resilience — garbage and edge-case EXR files don't crash or hang (validated by `--validate` against 3 fuzzed + 5 graceful-failure files)
 - [x] Multi-GPU/driver testing — NVIDIA, AMD, Intel (verified NVIDIA, Intel)
 - [x] Performance benchmarks — time to open/render various file sizes (`--benchmark` flag, JSON output, CI artifact, `show_benchmark.sh` / `compare_benchmark.sh`)
@@ -38,15 +38,16 @@
 - [x] Release workflow — triggered by git tag, builds optimized binary, creates GitHub Release with zip
 - [x] Single source of truth for version — `resource.h` defines feed VERSIONINFO + About dialog (still need to sync with MODULE.bazel)
 
-## 5. Code Signing
+## 5. Code Signing (post-release — requires published OSS project)
 
-- [ ] Obtain code signing certificate (SignPath for free OSS, or paid EV cert)
+- [ ] Apply to [SignPath.io](https://signpath.io/) for free OSS code signing (requires public repo + release history)
 - [ ] Integrate signing into release pipeline
 - [ ] Verify SmartScreen doesn't block the signed binary
+- Note: v0.1.0 ships unsigned. SmartScreen will warn but users can click through.
 
 ## 6. GitHub Releases
 
-- [ ] Release CI produces signed standalone `EXRay.exe`
+- [x] Release CI produces standalone `EXRay.exe` (unsigned for v0.1.0; signing added post-release)
 - [x] Verify no runtime DLL dependencies beyond system libs — all system DLLs + MSVC runtime (bundle VC++ Redist or statically link with `/MT`)
 - [x] Create `CHANGELOG.md`
 - [x] Provide both portable `.zip` and installer — Inno Setup `.iss` in `installer/`
@@ -68,7 +69,7 @@
 
 ## 9. Microsoft Store
 
-- [ ] Register Microsoft Partner Center account (~$19)
+- [x] Register Microsoft Partner Center account (Free for individuals)
 - [ ] Create `Package.appxmanifest` (app identity, capabilities, file type associations)
 - [ ] App icon at required sizes (44x44, 150x150, 300x300 — currently only 32x32)
 - [ ] Store screenshots (3-5 showing key features)
@@ -85,4 +86,4 @@
 
 ## Suggested Priority Order
 
-Sections 1-6 get you to a credible public GitHub release. Section 10 (at least the README) should land before the first release. Sections 7-9 fulfill the full distribution promise. The scroll stutter and missing UX features can be addressed in parallel throughout.
+Sections 1-4 and 6 get you to a credible public GitHub release. Section 10 (at least the README) should land before the first release. Section 5 (code signing) requires a published OSS project, so it comes after v0.1.0. Sections 7-9 fulfill the full distribution promise. The scroll stutter, update check, and missing UX features can be addressed in parallel throughout.
