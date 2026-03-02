@@ -6,11 +6,14 @@
 
 #include "app.h"
 #include "benchmark.h"
+#include "crash_handler.h"
 #include "timing.h"
 #include "validate.h"
 
+#include <crtdbg.h>
 #include <string>
 #include <windows.h>
+
 
 static const wchar_t* const kAppMutexName = L"EXRay_{387a4a4c-d19e-4ae5-9bfc-bbaa59ceccb1}";
 
@@ -18,6 +21,29 @@ StartupTiming g_timing;
 
 int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdShow)
 {
+    // --- CRT debug heap: dump unfreed allocations at exit (debug builds only) ---
+    // Reports written to %TEMP%\EXRay_debug.log AND OutputDebugString.
+#ifdef _DEBUG
+    _CrtSetDbgFlag(_CRTDBG_ALLOC_MEM_DF | _CRTDBG_LEAK_CHECK_DF);
+    {
+        wchar_t tempDir[MAX_PATH];
+        GetTempPathW(MAX_PATH, tempDir);
+        wchar_t logPath[MAX_PATH];
+        swprintf_s(logPath, L"%sEXRay_debug.log", tempDir);
+        HANDLE hLogFile = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ,
+                                      nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (hLogFile != INVALID_HANDLE_VALUE)
+        {
+            _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportFile(_CRT_WARN, hLogFile);
+            _CrtSetReportMode(_CRT_ERROR, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
+            _CrtSetReportFile(_CRT_ERROR, hLogFile);
+        }
+    }
+#endif
+
+    CrashHandler::Install();
+
     // --validate <images_path> <output_file>: headless test mode.
     // Loads every .exr in <images_path>, writes results to <output_file>,
     // exits with 0 (all pass) or 1 (any failure).
@@ -182,6 +208,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         CloseHandle(hMutex);
         return 0;
     }
+
+    if (!smokeTest)
+        CrashHandler::EnableDialog();
 
     g_timing.Init();
     g_timing.processStart = StartupTiming::Now();
