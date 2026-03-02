@@ -85,6 +85,10 @@ The built binary is at `bazel-bin/EXRay.exe`.
 - **Windows 10+**
 
 
+## Privacy
+
+EXRay does not collect, transmit, or store any user data. It includes no telemetry or analytics. The only network request EXRay makes is an optional update check against the GitHub Releases API (`api.github.com`) to notify you when a newer version is available. No personal or usage data is included in this request. In the event of a crash, a diagnostic minidump is saved locally to your `%TEMP%` directory — it is never sent anywhere automatically.
+
 ## License
 
 EXRay is licensed under the [GNU General Public License v3.0](LICENSE).
@@ -94,4 +98,5 @@ Uses [OpenEXR](https://openexr.com/) (BSD-3-Clause) - see [THIRD_PARTY_LICENSES]
 ## Links
 
 - [Changelog](CHANGELOG.md)
+- [Code Signing Policy](CODE_SIGNING.md)
 - [Matt Hughes](https://www.matthughes.info/)

@@ -70,7 +70,7 @@ The workflow only runs for tags pushed from `main`.
 
 ## 5. Code Signing (post-release — requires published OSS project)
 
-- [ ] Apply to [SignPath.io](https://signpath.io/) for free OSS code signing (requires public repo + release history)
+- [ ] Apply to [SignPath.org](https://signpath.org/) for free OSS code signing (requires public repo + release history)
 - [ ] Integrate signing into release pipeline
 - [ ] Verify SmartScreen doesn't block the signed binary
 - Note: v0.1.0 ships unsigned. SmartScreen will warn but users can click through.
