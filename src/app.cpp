@@ -332,7 +332,25 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
     }
 
+    if (!m_smokeTest)
+        StartUpdateCheck();
+
     return true;
+}
+
+void App::StartUpdateCheck()
+{
+    m_updateCheckComplete = false;
+    HWND hwnd = m_window.GetHwnd();
+
+    m_updateThread = std::thread(
+        [this, hwnd]()
+        {
+            m_updateResult =
+                UpdateChecker::Check(EXRAY_VERSION_MAJOR, EXRAY_VERSION_MINOR, EXRAY_VERSION_PATCH);
+            m_updateCheckComplete = true;
+            PostMessageW(hwnd, WM_APP + 1, 0, 0);
+        });
 }
 
 int App::Run()
@@ -358,6 +376,8 @@ int App::Run()
             {
                 if (m_preloadThread.joinable())
                     m_preloadThread.join();
+                if (m_updateThread.joinable())
+                    m_updateThread.join();
                 return static_cast<int>(msg.wParam);
             }
             if (!TranslateAcceleratorW(m_window.GetHwnd(), m_window.GetAccelTable(), &msg))
@@ -377,6 +397,20 @@ int App::Run()
         {
             FinishPreload();
             StartPreload();
+        }
+
+        // Handle update check completion
+        if (m_updateCheckComplete && !m_updateAvailable)
+        {
+            if (m_updateThread.joinable())
+                m_updateThread.join();
+            if (m_updateResult.updateAvailable)
+            {
+                m_updateAvailable = true;
+                m_updateVersion = m_updateResult.newVersion;
+                m_window.MarkHelpMenuUpdate(true);
+            }
+            m_updateCheckComplete = false;
         }
 
         if (m_needsRedraw)
@@ -550,6 +584,21 @@ void App::OnCommand(int commandId)
         HICON bigIcon = static_cast<HICON>(
             LoadImageW(m_hInstance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR));
 
+        std::wstring content = L"Version " EXRAY_VERSION_WSTR L"\n"
+                               EXRAY_COPYRIGHT_W L"\n\n"
+                               L"<a href=\"https://github.com/hughes/EXRay\">github.com/hughes/EXRay</a>\n"
+                               L"Open-source. Free of ads, forever.";
+
+        if (m_updateAvailable)
+        {
+            wchar_t verW[32];
+            MultiByteToWideChar(CP_UTF8, 0, m_updateVersion.c_str(), -1, verW, 32);
+            content += L"\n\n<a href=\"https://github.com/hughes/EXRay/releases/latest\">"
+                       L"Update available: v";
+            content += verW;
+            content += L"</a>";
+        }
+
         TASKDIALOGCONFIG tdc = {sizeof(tdc)};
         tdc.hwndParent = m_window.GetHwnd();
         tdc.hInstance = m_hInstance;
@@ -558,10 +607,7 @@ void App::OnCommand(int commandId)
         tdc.hMainIcon = bigIcon;
         tdc.pszWindowTitle = L"About EXRay";
         tdc.pszMainInstruction = L"EXRay";
-        tdc.pszContent = L"Version " EXRAY_VERSION_WSTR L"\n"
-                         EXRAY_COPYRIGHT_W L"\n\n"
-                         L"<a href=\"https://github.com/hughes/EXRay\">github.com/hughes/EXRay</a>\n"
-                         L"Open-source. Free of ads, forever.";
+        tdc.pszContent = content.c_str();
         tdc.pfCallback = [](HWND hwnd, UINT msg, WPARAM, LPARAM lParam, LONG_PTR) -> HRESULT
         {
             if (msg == TDN_HYPERLINK_CLICKED)
