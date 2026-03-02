@@ -57,11 +57,7 @@
         {
             "label": "Stage Installer",
             "type": "shell",
-            "command": "cp",
-            "args": [
-                "bazel-out/x64_windows-opt/bin/EXRay.exe",
-                "installer/"
-            ],
+            "command": "cp bazel-out/x64_windows-opt/bin/EXRay.exe installer/ ; attrib -R installer\\EXRay.exe",
             "group": "build",
             "dependsOn": "Build Installer"
         },
