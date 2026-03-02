@@ -300,7 +300,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.exposure = m_histogram.autoExposure;
             m_viewport.FitToWindow();
 
-            m_openTabs.push_back({cmdLinePath, m_viewport.exposure});
+            m_openTabs.push_back({cmdLinePath, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma});
             m_activeTab = 0;
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
@@ -669,7 +669,7 @@ void App::OpenFile(const std::wstring& path)
         return;
 
     bool wasEmpty = m_openTabs.empty();
-    m_openTabs.push_back({path, m_viewport.exposure, {}, {}});
+    m_openTabs.push_back({path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
@@ -716,7 +716,10 @@ void App::SwitchToTab(int index)
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
         m_viewport.exposure = m_openTabs[index].exposure;
-        m_viewport.FitToWindow();
+        m_viewport.zoom = m_openTabs[index].zoom;
+        m_viewport.panX = m_openTabs[index].panX;
+        m_viewport.panY = m_openTabs[index].panY;
+        m_viewport.gamma = m_openTabs[index].gamma;
 
         wchar_t title[MAX_PATH + 16];
         swprintf_s(title, L"EXRay - %s", m_openTabs[index].path.c_str());
@@ -727,6 +730,10 @@ void App::SwitchToTab(int index)
         // Cache miss — read from disk
         LoadFile(m_openTabs[index].path);
         m_viewport.exposure = m_openTabs[index].exposure;
+        m_viewport.zoom = m_openTabs[index].zoom;
+        m_viewport.panX = m_openTabs[index].panX;
+        m_viewport.panY = m_openTabs[index].panY;
+        m_viewport.gamma = m_openTabs[index].gamma;
     }
 
     EvictDistantTabs();
@@ -780,6 +787,10 @@ void App::SaveTabState()
     if (m_activeTab >= 0 && m_activeTab < static_cast<int>(m_openTabs.size()))
     {
         m_openTabs[m_activeTab].exposure = m_viewport.exposure;
+        m_openTabs[m_activeTab].zoom = m_viewport.zoom;
+        m_openTabs[m_activeTab].panX = m_viewport.panX;
+        m_openTabs[m_activeTab].panY = m_viewport.panY;
+        m_openTabs[m_activeTab].gamma = m_viewport.gamma;
         if (m_image.IsLoaded())
         {
             m_openTabs[m_activeTab].image = std::move(m_image);

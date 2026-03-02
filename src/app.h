@@ -74,6 +74,10 @@ class App
     {
         std::wstring path;
         float exposure = 0.0f;
+        float zoom = 1.0f;
+        float panX = 0.0f;
+        float panY = 0.0f;
+        float gamma = 1.0f / 2.2f;
         ImageData image;
         HistogramData histogram;
     };
