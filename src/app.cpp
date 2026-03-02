@@ -362,6 +362,11 @@ int App::Run()
             }
             if (!TranslateAcceleratorW(m_window.GetHwnd(), m_window.GetAccelTable(), &msg))
             {
+                // Forward keyboard input from other controls (e.g. tab bar) to the render area
+                // so application hotkeys work regardless of which child has focus.
+                if (msg.message == WM_KEYDOWN && msg.hwnd != m_window.GetRenderHwnd())
+                    SendMessageW(m_window.GetRenderHwnd(), msg.message, msg.wParam, msg.lParam);
+
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
