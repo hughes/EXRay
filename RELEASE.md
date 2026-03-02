@@ -22,7 +22,7 @@
 - [x] Multi-GPU/driver testing — NVIDIA, AMD, Intel (verified NVIDIA, Intel)
 - [x] Performance benchmarks — time to open/render various file sizes (`--benchmark` flag, JSON output, CI artifact, `show_benchmark.sh` / `compare_benchmark.sh`)
 - [x] Automated headless validation — `EXRay.exe --validate tests/images/` (load + histogram on ~50 OpenEXR test images, CI-friendly)
-- [ ] Automated GUI smoke test — `tests/smoke_test.sh` launches app per file, verifies window title + no crash (requires display)
+- [x] Automated GUI smoke test — `tests/smoke_test.sh` launches app per file, verifies window title + no crash (requires display)
 
 ## 3. Licensing
 
