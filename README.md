@@ -1,18 +1,19 @@
 # EXRay
 
-A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, and built for people who just want to see their images.
+A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and built for people who just want to see their images.
 
 ![EXRay screenshot](screenshot.png)
 
 ## Features
 
+- **Tiny footprint** - Fits on a floppy disk
 - **Instant loading** - D3D11 hardware-accelerated rendering with background preload for adjacent tabs
 - **HDR display support** - auto-detects HDR-capable monitors and outputs scRGB linear
-- **Exposure & gamma control** - adjust EV stops and gamma in real time with keyboard or scroll wheel
-- **Histogram overlay** - 512-bin histogram with per-channel or luminance display
-- **Pixel inspector** - live RGBA readout under cursor in the status bar
+- **Exposure & gamma control** - adjust EV stops and gamma with real time controls
+- **Histogram overlay** - per-chahnel histogram with luminance
+- **Pixel inspector** - live RGBA readout under cursor in the status bar and right-click to copy
 - **Pixel grid** - sub-pixel grid overlay that fades in at high zoom levels
-- **Multi-image tabs** - open multiple EXR files with smart memory management (adjacent tabs stay cached)
+- **Multi-image tabs** - open multiple EXR files
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
 - **Trackpad & touchscreen** - two-finger pan, pinch-to-zoom, and single-touch drag
@@ -57,17 +58,11 @@ A fast, native EXR image viewer for Windows. Hardware-accelerated, HDR-aware, an
 | Toggle fullscreen | `F11` |
 | Exit fullscreen | `Esc` |
 
-## Channel modes
-
-The histogram and pixel grid support five channel views, cycled with `C`:
-
-**Luminance** · **Red** · **Green** · **Blue** · **All (RGBA)**
-
 ## Installation
 
-### Portable
+### Installable or portable versions
 
-Download the latest zip from [Releases](https://github.com/hughes/EXRay/releases), extract, and run `EXRay.exe`. No installer required - single standalone executable with no runtime dependencies.
+Download the latest installer or zip from [Releases](https://github.com/hughes/EXRay/releases).
 
 ### Build from source
 
@@ -89,22 +84,6 @@ The built binary is at `bazel-bin/EXRay.exe`.
   - Component: **Windows 10 SDK** (any recent version, e.g. 10.0.19041.0) — the SDK headers and libraries are required; the bin-only tools installed by some other packages are not sufficient.
 - **Windows 10+**
 
-#### Machine-specific rc.exe path
-
-`BUILD.bazel` contains a hardcoded path to `rc.exe` (the Windows resource compiler) using 8.3 short names. You may need to update it to match your SDK version:
-
-```python
-# In BUILD.bazel, the genrule for app_resources:
-cmd_bat = "C:\\PROGRA~2\\WI3CF2~1\\10\\bin\\<SDK_VERSION>\\x64\\rc.exe ..."
-```
-
-To find the right 8.3 short name for your installed SDK version, run:
-
-```
-dir /x "C:\Program Files (x86)\Windows Kits\10\bin"
-```
-
-CI workflows auto-detect and patch this path before building.
 
 ## License
 
@@ -115,4 +94,4 @@ Uses [OpenEXR](https://openexr.com/) (BSD-3-Clause) - see [THIRD_PARTY_LICENSES]
 ## Links
 
 - [Changelog](CHANGELOG.md)
-- [Matt Hughes](https://github.com/hughes)
+- [Matt Hughes](https://www.matthughes.info/)
