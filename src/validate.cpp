@@ -63,7 +63,8 @@ static TestResult RunAutoExposureTest()
     }
 
     constexpr float kExpected = 1.0f;
-    if (std::abs(hist.autoExposure - kExpected) > 0.01f)
+    // Tolerance: half a histogram bin width.  300 bins over 20 stops → ~0.034 EV per half-bin.
+    if (std::abs(hist.autoExposure - kExpected) > 0.04f)
     {
         char buf[96];
         snprintf(buf, sizeof(buf), "autoExposure=%.4f, expected=%.4f", hist.autoExposure, kExpected);
@@ -179,7 +180,7 @@ int RunValidation(const std::wstring& path, const std::wstring& outputFile)
             if (entry.is_regular_file())
             {
                 auto ext = entry.path().extension().string();
-                if (ext == ".exr" || ext == ".EXR" || ext.empty())
+                if (ext == ".exr" || ext == ".EXR")
                     files.push_back(entry.path());
             }
         }
