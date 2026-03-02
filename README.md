@@ -9,8 +9,8 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 - **Tiny footprint** - Fits on a floppy disk
 - **Instant loading** - D3D11 hardware-accelerated rendering with background preload for adjacent tabs
 - **HDR display support** - auto-detects HDR-capable monitors and outputs scRGB linear
-- **Exposure & gamma control** - adjust EV stops and gamma with real time controls
-- **Histogram overlay** - per-chahnel histogram with luminance
+- **Exposure & gamma control** - adjust EV stops and gamma with real-time controls
+- **Histogram overlay** - per-channel histogram with luminance
 - **Pixel inspector** - live RGBA readout under cursor in the status bar and right-click to copy
 - **Pixel grid** - sub-pixel grid overlay that fades in at high zoom levels
 - **Multi-image tabs** - open multiple EXR files
@@ -51,7 +51,7 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Pan (vertical) | Scroll · two-finger swipe · middle mouse drag · touch drag |
 | Pan (horizontal) | `Shift+Scroll` · two-finger horizontal swipe |
 | Exposure ±0.25 EV | `+` / `-` |
-| Gamma ±  (SDR) | `]` / `[` |
+| Gamma ±0.05 (SDR) | `]` / `[` |
 | Toggle histogram | `H` |
 | Cycle histogram channel | `C` |
 | Toggle pixel grid | `G` |

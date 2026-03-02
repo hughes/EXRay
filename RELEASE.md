@@ -1,5 +1,35 @@
 # EXRay Release Checklist
 
+## How to release
+
+1. **Bump the version** in these files (keep them in sync):
+   - `src/resource.h` — `EXRAY_VERSION_STR`, `EXRAY_VERSION_MAJOR/MINOR/PATCH` (source of truth)
+   - `MODULE.bazel` — `version` field
+   - `installer/EXRay.iss` — `MyAppVersion` (also overridden by CI from the git tag)
+2. **Update `CHANGELOG.md`** — replace "Unreleased" with the version and date
+3. **Commit**: `git commit -am "Prepare vX.Y.Z release"`
+4. **Tag**: `git tag vX.Y.Z`
+5. **Push**: `git push origin main --tags`
+
+CI handles the rest. The release workflow (`.github/workflows/release.yml`):
+- Builds an optimized binary (`bazelisk build -c opt`)
+- Packages a portable zip (`EXRay-vX.Y.Z-win64.zip`)
+- Builds the Inno Setup installer (`EXRay-X.Y.Z-setup.exe`)
+- Creates a GitHub Release with both artifacts and auto-generated notes
+
+The workflow only runs for tags pushed from `main`.
+
+### Release artifacts
+
+| File | Description |
+|---|---|
+| `EXRay-vX.Y.Z-win64.zip` | Portable — unzip and run, no install needed |
+| `EXRay-X.Y.Z-setup.exe` | Installer — Start menu, file association, uninstaller |
+
+---
+
+## Pre-release checklist
+
 ## 1. Polish & Completeness
 
 - [x] About dialog — version string, links, license info
@@ -71,7 +101,7 @@
 
 - [x] Register Microsoft Partner Center account (Free for individuals)
 - [ ] Create `Package.appxmanifest` (app identity, capabilities, file type associations)
-- [ ] App icon at required sizes (44x44, 150x150, 300x300 — currently only 32x32)
+- [ ] App icon at required sizes (44x44, 150x150, 300x300)
 - [ ] Store screenshots (3-5 showing key features)
 - [ ] Store listing — short description, long description, category, age rating
 - [ ] Privacy policy URL

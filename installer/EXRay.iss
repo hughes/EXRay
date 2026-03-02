@@ -39,7 +39,7 @@ PrivilegesRequired=lowest
 VersionInfoVersion={#MyAppVersion}
 VersionInfoCompany={#MyAppPublisher}
 VersionInfoDescription=EXRay - EXR Image Viewer
-VersionInfoCopyright=Copyright (c) 2025 Matt Hughes
+VersionInfoCopyright=Copyright (c) 2026 Matt Hughes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

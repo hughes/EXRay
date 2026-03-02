@@ -22,11 +22,15 @@ jobs:
           key: bazel-${{ runner.os }}-${{ hashFiles('MODULE.bazel', '.bazelrc', 'BUILD.bazel') }}
           restore-keys: bazel-${{ runner.os }}-
 
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup -y --no-progress
+
       - name: Build
         shell: cmd
         run: bazelisk build -c opt //:EXRay
 
-      - name: Package
+      - name: Package portable zip
         shell: pwsh
         run: |
           $tag = "${{ github.ref_name }}"
@@ -37,11 +41,27 @@ jobs:
           Copy-Item THIRD_PARTY_LICENSES staging/
           Copy-Item CHANGELOG.md staging/
           Compress-Archive -Path staging/* -DestinationPath $zipName
-          Write-Host "Package: $zipName"
+          Write-Host "Portable zip: $zipName"
           echo "ZIP_NAME=$zipName" >> $env:GITHUB_ENV
+
+      - name: Build installer
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          # Strip leading 'v' from tag for version string
+          $version = $tag -replace '^v', ''
+          # Stage binary for Inno Setup (it can't follow Bazel symlinks)
+          Copy-Item bazel-bin/EXRay.exe installer/
+          # Build installer, overriding version from tag
+          & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion="$version" installer\EXRay.iss
+          $setupName = "EXRay-$version-setup.exe"
+          Write-Host "Installer: dist/$setupName"
+          echo "SETUP_NAME=$setupName" >> $env:GITHUB_ENV
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: ${{ env.ZIP_NAME }}
+          files: |
+            ${{ env.ZIP_NAME }}
+            dist/${{ env.SETUP_NAME }}
           generate_release_notes: true
