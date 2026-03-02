@@ -1,9 +1,8 @@
 #!/usr/bin/env bash
 # smoke_test.sh — GUI integration test for EXRay.
-# Launches the real app with each test image, verifies the window appears
-# and the process doesn't crash, then closes it.
-#
-# Requires a display (not for headless CI).
+# Launches the app with --smoke-test for each test image.
+# In this mode the app forces WARP, suppresses dialogs,
+# renders one frame, and exits with 0 (pass) or 1 (fail).
 #
 # Usage:
 #   ./tests/smoke_test.sh                        # test all downloaded images
@@ -16,7 +15,6 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 EXRAY="$REPO_ROOT/bazel-bin/EXRay.exe"
 IMAGES_DIR="$SCRIPT_DIR/images"
-TIMEOUT_SEC=8
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -25,102 +23,18 @@ TIMEOUT_SEC=8
 red()   { printf '\033[31m%s\033[0m' "$1"; }
 green() { printf '\033[32m%s\033[0m' "$1"; }
 
-# Directories where we expect the file to load successfully (window title changes).
-expects_load() {
-    case "$1" in
-        */ScanLines/*|*/Tiles/*|*/TestImages/*|*/LuminanceChroma/*|*/DisplayWindow/*|*/Chromaticities/*)
-            return 0 ;;
-        *)
-            return 1 ;;
-    esac
-}
-
 smoke_one() {
     local file="$1"
-    local basename
-    basename=$(basename "$file")
     local relpath
     relpath=$(python3 -c "import os,sys; print(os.path.relpath(sys.argv[1], sys.argv[2]))" "$file" "$REPO_ROOT" 2>/dev/null || echo "$file")
 
-    # Launch EXRay in background.
-    "$EXRAY" "$file" &
-    local pid=$!
-
-    # Wait for the window to appear (poll for up to TIMEOUT_SEC seconds).
-    local found=false
-    for (( i=0; i<TIMEOUT_SEC*2; i++ )); do
-        if ! kill -0 "$pid" 2>/dev/null; then
-            break  # Process exited
-        fi
-        # Check if the window exists via PowerShell.
-        local title
-        title=$(powershell.exe -NoProfile -Command "
-            \$p = Get-Process -Id $pid -ErrorAction SilentlyContinue
-            if (\$p -and \$p.MainWindowTitle) { Write-Output \$p.MainWindowTitle }
-        " 2>/dev/null | tr -d '\r') || true
-        if [[ -n "$title" ]]; then
-            found=true
-            break
-        fi
-        sleep 0.5
-    done
-
-    # Evaluate result.
-    local crashed=false
-    if ! kill -0 "$pid" 2>/dev/null; then
-        wait "$pid" 2>/dev/null || true
-        crashed=true
-    fi
-
-    local passed=true
-    local detail=""
-
-    if $crashed; then
-        passed=false
-        detail="crashed"
-    elif ! $found; then
-        passed=false
-        detail="no window after ${TIMEOUT_SEC}s"
+    if "$EXRAY" --smoke-test "$file" >/dev/null 2>&1; then
+        printf "  %s  %s\n" "$(green PASS)" "$relpath"
+        return 0
     else
-        # Check window title for filename (success indicator).
-        if expects_load "$file"; then
-            if [[ "$title" == *"$basename"* ]]; then
-                detail="title ok"
-            else
-                passed=false
-                detail="title='$title' (expected filename)"
-            fi
-        else
-            detail="window appeared"
-        fi
+        printf "  %s  %s\n" "$(red FAIL)" "$relpath"
+        return 1
     fi
-
-    # Clean up: close the window gracefully.
-    if kill -0 "$pid" 2>/dev/null; then
-        # Send WM_CLOSE via PowerShell.
-        powershell.exe -NoProfile -Command "
-            \$p = Get-Process -Id $pid -ErrorAction SilentlyContinue
-            if (\$p) { \$p.CloseMainWindow() | Out-Null }
-        " 2>/dev/null || true
-
-        # Wait briefly for graceful shutdown, then force-kill if needed.
-        for (( i=0; i<6; i++ )); do
-            if ! kill -0 "$pid" 2>/dev/null; then break; fi
-            sleep 0.5
-        done
-        if kill -0 "$pid" 2>/dev/null; then
-            kill "$pid" 2>/dev/null || true
-        fi
-    fi
-    wait "$pid" 2>/dev/null || true
-
-    if $passed; then
-        printf "  %s  %-50s  %s\n" "$(green PASS)" "$relpath" "$detail"
-    else
-        printf "  %s  %-50s  %s\n" "$(red FAIL)" "$relpath" "$detail"
-    fi
-
-    $passed
 }
 
 # ---------------------------------------------------------------------------
@@ -161,9 +75,9 @@ passed=0
 failed=0
 for f in "${files[@]}"; do
     if smoke_one "$f"; then
-        ((passed++))
+        ((passed++)) || true
     else
-        ((failed++))
+        ((failed++)) || true
     fi
 done
 

@@ -129,9 +129,33 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         }
     }
 
+    // --smoke-test <file>: GUI smoke test mode.
+    // Forces WARP, suppresses dialogs, exits after rendering one frame.
+    // Exit code: 0 = success, 1 = failure.
+    bool smokeTest = false;
+    {
+        std::wstring cmdLine = lpCmdLine ? lpCmdLine : L"";
+        const std::wstring flag = L"--smoke-test";
+        auto pos = cmdLine.find(flag);
+        if (pos != std::wstring::npos)
+        {
+            smokeTest = true;
+            // Strip the flag from the command line, leaving just the file path.
+            std::wstring rest = cmdLine.substr(pos + flag.size());
+            size_t start = rest.find_first_not_of(L" \t");
+            if (start != std::wstring::npos)
+                lpCmdLine = const_cast<LPWSTR>(lpCmdLine + pos + flag.size() + start);
+            else
+                lpCmdLine = const_cast<LPWSTR>(L"");
+        }
+    }
+
     // Single-instance check: if another instance is running, forward the file path to it.
-    HANDLE hMutex = CreateMutexW(nullptr, FALSE, kAppMutexName);
-    if (GetLastError() == ERROR_ALREADY_EXISTS)
+    // Skip in smoke-test mode — CI may run multiple instances concurrently.
+    HANDLE hMutex = nullptr;
+    if (!smokeTest)
+        hMutex = CreateMutexW(nullptr, FALSE, kAppMutexName);
+    if (hMutex && GetLastError() == ERROR_ALREADY_EXISTS)
     {
         if (lpCmdLine && lpCmdLine[0] != L'\0')
         {
@@ -165,15 +189,17 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
     App app;
-    if (!app.Initialize(hInstance, nCmdShow, lpCmdLine, g_timing))
+    if (!app.Initialize(hInstance, nCmdShow, lpCmdLine, g_timing, smokeTest))
     {
-        CloseHandle(hMutex);
+        if (hMutex)
+            CloseHandle(hMutex);
         return 1;
     }
 
     int result = app.Run();
 
     g_timing.LogToDebugOutput();
-    CloseHandle(hMutex);
+    if (hMutex)
+        CloseHandle(hMutex);
     return result;
 }

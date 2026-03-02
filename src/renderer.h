@@ -53,7 +53,7 @@ struct HistogramData;
 class Renderer
 {
   public:
-    bool Initialize(HWND hwnd);
+    bool Initialize(HWND hwnd, bool forceWARP = false);
     void Resize(int width, int height);
     void BeginFrame(float clearR, float clearG, float clearB);
     void EndFrame(bool vsync = true);
@@ -116,4 +116,5 @@ class Renderer
     // HDR state
     HDRDisplayInfo m_hdrInfo;
     bool m_hdrEnabled = false;
+    bool m_useWARP = false;
 };

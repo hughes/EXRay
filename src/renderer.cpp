@@ -202,31 +202,31 @@ float4 HistPS(VS_OUT input) : SV_TARGET {
 
     // --- Draw histogram bars (only where shifted bin is in range) ---
     if (validBin) {
-    if (channelMode == 4) {
-        float rVal = histogramTex.Load(int3(bin, 1, 0));
-        float gVal = histogramTex.Load(int3(bin, 2, 0));
-        float bVal = histogramTex.Load(int3(bin, 3, 0));
+        if (channelMode == 4) {
+            float rVal = histogramTex.Load(int3(bin, 1, 0));
+            float gVal = histogramTex.Load(int3(bin, 2, 0));
+            float bVal = histogramTex.Load(int3(bin, 3, 0));
 
-        if (barY < rVal) color = float4(0.7, 0.15, 0.15, 0.75);
-        if (barY < gVal) color.g = max(color.g, 0.7);
-        if (barY < bVal) color.b = max(color.b, 0.7);
-        if (barY < rVal || barY < gVal || barY < bVal) {
-            color.rgb *= barScale;
-            color.a = 0.75;
+            if (barY < rVal) color = float4(0.7, 0.15, 0.15, 0.75);
+            if (barY < gVal) color.g = max(color.g, 0.7);
+            if (barY < bVal) color.b = max(color.b, 0.7);
+            if (barY < rVal || barY < gVal || barY < bVal) {
+                color.rgb *= barScale;
+                color.a = 0.75;
+            }
+        } else {
+            int row = channelMode;
+            float val = histogramTex.Load(int3(bin, row, 0));
+
+            float3 barColor = float3(0.7, 0.7, 0.7);
+            if (channelMode == 1) barColor = float3(0.85, 0.2, 0.2);
+            if (channelMode == 2) barColor = float3(0.2, 0.85, 0.2);
+            if (channelMode == 3) barColor = float3(0.3, 0.3, 0.85);
+
+            if (barY < val) {
+                color = float4(barColor * barScale, 0.75);
+            }
         }
-    } else {
-        int row = channelMode;
-        float val = histogramTex.Load(int3(bin, row, 0));
-
-        float3 barColor = float3(0.7, 0.7, 0.7);
-        if (channelMode == 1) barColor = float3(0.85, 0.2, 0.2);
-        if (channelMode == 2) barColor = float3(0.2, 0.85, 0.2);
-        if (channelMode == 3) barColor = float3(0.3, 0.3, 0.85);
-
-        if (barY < val) {
-            color = float4(barColor * barScale, 0.75);
-        }
-    }
     }
 
     // Composite in-shader: replaces hardware alpha blend with clamped background
@@ -241,7 +241,7 @@ struct Vertex
     float u, v;
 };
 
-bool Renderer::Initialize(HWND hwnd)
+bool Renderer::Initialize(HWND hwnd, bool forceWARP)
 {
     // Create D3D11 device
     D3D_FEATURE_LEVEL featureLevels[] = {
@@ -255,8 +255,13 @@ bool Renderer::Initialize(HWND hwnd)
 
     ComPtr<ID3D11Device> baseDevice;
     ComPtr<ID3D11DeviceContext> baseContext;
-    HRESULT hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, featureLevels,
-                                   _countof(featureLevels), D3D11_SDK_VERSION, &baseDevice, nullptr, &baseContext);
+    HRESULT hr = E_FAIL;
+
+    if (!forceWARP)
+    {
+        hr = D3D11CreateDevice(nullptr, D3D_DRIVER_TYPE_HARDWARE, nullptr, flags, featureLevels,
+                               _countof(featureLevels), D3D11_SDK_VERSION, &baseDevice, nullptr, &baseContext);
+    }
 
     if (FAILED(hr))
     {
@@ -266,7 +271,8 @@ bool Renderer::Initialize(HWND hwnd)
                                D3D11_SDK_VERSION, &baseDevice, nullptr, &baseContext);
         if (FAILED(hr))
             return false;
-        OutputDebugStringW(L"[EXRay] Using WARP software rasterizer (no hardware GPU available)\n");
+        m_useWARP = true;
+        OutputDebugStringW(L"[EXRay] Using WARP software rasterizer\n");
     }
 
     hr = baseDevice.As(&m_device);
@@ -301,8 +307,18 @@ bool Renderer::Initialize(HWND hwnd)
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
-    desc.Scaling = DXGI_SCALING_NONE;
-    desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+
+    if (m_useWARP)
+    {
+        // WARP doesn't support DXGI_SCALING_NONE or waitable swap chains
+        desc.Scaling = DXGI_SCALING_STRETCH;
+        desc.Flags = 0;
+    }
+    else
+    {
+        desc.Scaling = DXGI_SCALING_NONE;
+        desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    }
 
     if (m_hdrInfo.isHDRCapable)
         desc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
@@ -442,8 +458,8 @@ void Renderer::Resize(int width, int height)
     m_height = height;
 
     ReleaseRenderTarget();
-    m_swapchain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN,
-                               DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+    UINT swapFlags = m_useWARP ? 0 : DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    m_swapchain->ResizeBuffers(0, width, height, DXGI_FORMAT_UNKNOWN, swapFlags);
     CreateRenderTarget();
 }
 
@@ -550,8 +566,7 @@ HDRDisplayInfo Renderer::DetectHDR(HWND hwnd)
 bool Renderer::RefreshHDRInfo(HWND hwnd)
 {
     HDRDisplayInfo newInfo = DetectHDR(hwnd);
-    bool changed = (newInfo.isHDRCapable != m_hdrInfo.isHDRCapable ||
-                    newInfo.maxLuminance != m_hdrInfo.maxLuminance);
+    bool changed = (newInfo.isHDRCapable != m_hdrInfo.isHDRCapable || newInfo.maxLuminance != m_hdrInfo.maxLuminance);
     m_hdrInfo = newInfo;
     return changed;
 }
@@ -566,8 +581,8 @@ bool Renderer::SetHDRMode(bool enable)
     ReleaseRenderTarget();
 
     DXGI_FORMAT fmt = enable ? DXGI_FORMAT_R16G16B16A16_FLOAT : DXGI_FORMAT_B8G8R8A8_UNORM;
-    HRESULT hr =
-        m_swapchain->ResizeBuffers(2, m_width, m_height, fmt, DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT);
+    UINT swapFlags = m_useWARP ? 0 : DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
+    HRESULT hr = m_swapchain->ResizeBuffers(2, m_width, m_height, fmt, swapFlags);
     if (FAILED(hr))
     {
         CreateRenderTarget();

@@ -19,10 +19,11 @@ static const wchar_t* ExtractFilename(const std::wstring& path)
     return fn ? fn + 1 : path.c_str();
 }
 
-bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing)
+bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest)
 {
     m_hInstance = hInstance;
     m_timing = &timing;
+    m_smokeTest = smokeTest;
 
     // If a file path was passed on the command line, start loading immediately
     // on a background thread — before window/D3D11 init.
@@ -52,7 +53,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     if (!m_window.Create(
             hInstance, nCmdShow, [this](int id) { OnCommand(id); }, [this](int w, int h) { OnResize(w, h); }))
     {
-        MessageBoxW(nullptr, L"Failed to create window.", L"EXRay", MB_ICONERROR);
+        if (!m_smokeTest)
+            MessageBoxW(nullptr, L"Failed to create window.", L"EXRay", MB_ICONERROR);
         return false;
     }
 
@@ -249,16 +251,20 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
     m_timing->windowVisible = StartupTiming::Now();
 
-    if (!m_renderer.Initialize(m_window.GetRenderHwnd()))
+    if (!m_renderer.Initialize(m_window.GetRenderHwnd(), m_smokeTest))
     {
-        MessageBoxW(nullptr, L"Failed to initialize D3D11.", L"EXRay", MB_ICONERROR);
+        if (!m_smokeTest)
+            MessageBoxW(nullptr, L"Failed to initialize D3D11.", L"EXRay", MB_ICONERROR);
         return false;
     }
 
     m_timing->d3dReady = StartupTiming::Now();
 
-    LoadRecentFiles();
-    LoadPreferences();
+    if (!m_smokeTest)
+    {
+        LoadRecentFiles();
+        LoadPreferences();
+    }
     m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
 
     // Propagate HDR state to viewport
@@ -317,6 +323,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
         else if (!m_loadError.empty())
         {
+            if (m_smokeTest)
+                return false;
             int len = MultiByteToWideChar(CP_UTF8, 0, m_loadError.c_str(), -1, nullptr, 0);
             std::wstring wideError(len, L'\0');
             MultiByteToWideChar(CP_UTF8, 0, m_loadError.c_str(), -1, wideError.data(), len);
@@ -336,6 +344,10 @@ int App::Run()
         m_timing->LogToDebugOutput();
     }
     m_needsRedraw = false;
+
+    // Smoke test: one frame rendered successfully — exit immediately.
+    if (m_smokeTest)
+        return 0;
 
     MSG msg = {};
     while (true)
@@ -624,10 +636,13 @@ bool App::LoadFile(const std::wstring& path)
     }
     else
     {
-        int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
-        std::wstring wideError(len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
-        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+        if (!m_smokeTest)
+        {
+            int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
+            std::wstring wideError(len, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
+            MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+        }
         return false;
     }
 }

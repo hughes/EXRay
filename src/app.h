@@ -22,7 +22,8 @@
 class App
 {
   public:
-    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing);
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing,
+                    bool smokeTest = false);
     int Run();
 
   private:
@@ -95,4 +96,7 @@ class App
     ImageData m_preloadImage;
     HistogramData m_preloadHistogram;
     std::atomic<bool> m_preloadComplete{false};
+
+    // Smoke test mode — force WARP, suppress dialogs, exit after first frame
+    bool m_smokeTest = false;
 };
