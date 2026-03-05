@@ -26,6 +26,10 @@ jobs:
         shell: cmd
         run: bazelisk build //:EXRay
 
+      - name: Run unit tests
+        shell: cmd
+        run: bazelisk test //:update_checker_test --test_output=errors
+
       - name: Cache test images
         uses: actions/cache@v4
         with:

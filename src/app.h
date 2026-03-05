@@ -10,6 +10,7 @@
 #include "image.h"
 #include "renderer.h"
 #include "timing.h"
+#include "update_checker.h"
 #include "viewport.h"
 #include "window.h"
 
@@ -37,6 +38,7 @@ class App
     void SaveTabState();
     void StartPreload();
     void FinishPreload();
+    void StartUpdateCheck();
     void EvictDistantTabs();
     void Render();
     void UpdateImageStatusText();
@@ -100,6 +102,13 @@ class App
     ImageData m_preloadImage;
     HistogramData m_preloadHistogram;
     std::atomic<bool> m_preloadComplete{false};
+
+    // Update check state
+    std::thread m_updateThread;
+    UpdateCheckResult m_updateResult;
+    std::atomic<bool> m_updateCheckComplete{false};
+    bool m_updateAvailable = false;
+    std::string m_updateVersion;
 
     // Smoke test mode — force WARP, suppress dialogs, exit after first frame
     bool m_smokeTest = false;

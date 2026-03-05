@@ -1,4 +1,4 @@
-load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library")
+load("@rules_cc//cc:defs.bzl", "cc_binary", "cc_library", "cc_test")
 
 cc_library(
     name = "image_lib",
@@ -48,6 +48,7 @@ cc_binary(
         "src/viewport.cpp",
         "src/timing.h",
         "src/crash_handler.h",
+        "src/update_checker.h",
         "src/resource.h",
     ],
     additional_linker_inputs = [":app_resources"],
@@ -70,6 +71,19 @@ cc_binary(
         "-DEFAULTLIB:comctl32.lib",
         "-DEFAULTLIB:ole32.lib",
         "-DEFAULTLIB:dbghelp.lib",
+        "-DEFAULTLIB:winhttp.lib",
         "$(location :app_resources)",
+    ],
+)
+
+cc_test(
+    name = "update_checker_test",
+    srcs = [
+        "tests/update_checker_test.cpp",
+        "src/update_checker.h",
+    ],
+    includes = ["src"],
+    linkopts = [
+        "-DEFAULTLIB:winhttp.lib",
     ],
 )

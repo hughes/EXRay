@@ -350,6 +350,21 @@ void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)
     EnableMenuItem(menu, IDM_VIEW_GAMMA_DOWN, MF_BYCOMMAND | gammaEnable);
 }
 
+void Window::MarkHelpMenuUpdate(bool available)
+{
+    HMENU menu = GetMenu(m_hwnd);
+    if (!menu)
+        menu = m_savedMenu;
+    if (!menu)
+        return;
+
+    // Help menu is at position 2 (File=0, View=1, Help=2)
+    ModifyMenuW(menu, 2, MF_BYPOSITION | MF_POPUP,
+                reinterpret_cast<UINT_PTR>(GetSubMenu(menu, 2)),
+                available ? L"&Help *" : L"&Help");
+    DrawMenuBar(m_hwnd);
+}
+
 void Window::AddTab(int index, const wchar_t* label)
 {
     if (!m_tabBar)

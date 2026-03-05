@@ -40,7 +40,7 @@ The workflow only runs for tags pushed from `main`.
 - [x] Window title shows current filename
 - [x] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
 - [ ] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
-- [ ] Update check — background WinHTTP GET to `api.github.com/repos/hughes/EXRay/releases/latest`, compare `tag_name` semver to current version. If newer: asterisk on Help menu, "Update available" line in About dialog. No interruptions. Requires at least one published release to test against.
+- [x] Update check — background WinHTTP GET to `api.github.com/repos/hughes/EXRay/releases/latest`, compare `tag_name` semver to current version. If newer: asterisk on Help menu, "Update available" line in About dialog. No interruptions. Requires at least one published release to test against.
 - [x] Make sure all environment-specific stuff referencing the local development paths is removed.
 
 ## 2. Testing
