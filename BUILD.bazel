@@ -68,6 +68,7 @@ cc_binary(
         "-DEFAULTLIB:dxgi.lib",
         "-DEFAULTLIB:d3dcompiler.lib",
         "-DEFAULTLIB:dxguid.lib",
+        "-DEFAULTLIB:dcomp.lib",
         "-DEFAULTLIB:comctl32.lib",
         "-DEFAULTLIB:ole32.lib",
         "-DEFAULTLIB:dbghelp.lib",

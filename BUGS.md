@@ -1,57 +1,44 @@
 # Known Bugs
 
+(none currently)
+
+---
+
+# Resolved Bugs
+
 ## System-wide stutter triggered by scroll wheel + Present() calls
 
+**Status: FIXED** — DirectComposition swap chain with effect group opacity
+
 ### Symptoms
-- After rapid scrolling (zoom or Ctrl+exposure), mouse movement stutters at ~10fps for 5-10 seconds
-- Affects the ENTIRE system: other apps, background video, mouse cursor — not just EXRay
+- After rapid scrolling (zoom or Ctrl+exposure), mouse movement stuttered at ~10fps for 5-10 seconds
+- Affected the ENTIRE system: other apps, background video, mouse cursor — not just EXRay
 - Intermittent: ~25-50% reproducible
-- Resolves on its own after 5-10 seconds
-- Triggered equally by zoom-in and zoom-out
 - Triggered by scroll wheel specifically, not by keyboard/mouse/pan input
 - Hardware: Logitech MagSpeed (high-inertia free-spin) scroll wheel, 175Hz display
 
-### Root cause (confirmed)
-- It is the `Present()` calls during scroll that trigger it — NOT the scroll message volume
-- **Diagnostic proof**: Commenting out `m_needsRedraw = true` in the scroll handler (so scroll updates internal state but never renders) completely eliminates the stutter
-- The issue is in the GPU driver or DWM compositor, not in our code
+### Root cause
+The DWM was promoting the swap chain to **independent flip mode** (handing it directly to the display hardware). Rapid `Present()` calls during scroll caused the DWM to repeatedly transition between composed and independent flip modes. The **mode transition** itself caused the system-wide stutter — not the rendering load.
 
-### What we tried
+**Key evidence**: Running any other windowed app with an active swap chain (even at 60fps) eliminated the stutter, because the DWM was forced to stay in composed mode (can't independent-flip when multiple windows are presenting).
+
+### Fix
+Switched from `CreateSwapChainForHwnd` to `CreateSwapChainForComposition` (DirectComposition) and attached an `IDCompositionEffectGroup` with 254/255 opacity to the visual. The effect group forces the DWM to always composite the visual, preventing independent flip promotion and the problematic mode transitions.
+
+Neither DirectComposition alone nor `IDCompositionVisual3::SetOpacity` alone was sufficient — the DWM optimized those away and still promoted to independent flip. Only an explicit `IDCompositionEffectGroup` with a non-identity effect prevented the promotion. An identity 3D transform (`IDCompositionMatrixTransform3D`) was also optimized away.
+
+The 254/255 opacity introduces a ~0.4% luminance reduction — imperceptible to the eye but measurable with a colorimeter. This is an acceptable tradeoff; no zero-impact alternative exists.
+
+### What we tried (for reference)
 
 | Approach | Result |
 |----------|--------|
 | Throttle to 60fps during scroll | Still stutters |
 | Present(0, 0) (no vsync) during scroll | Still stutters |
 | Present(1, 0) (vsync) during scroll | Still stutters |
-| DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT + SetMaximumFrameLatency(1) | Fixed screen blanking and cursor rendering issues, but scroll stutter persists |
-| Properly waiting on frame latency waitable handle before each render | Still stutters |
+| DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT | Fixed screen blanking and cursor artifacts, stutter persists |
 | Throttle to 30fps during scroll | No stutter, but bad UX |
-| Throttle to 5fps during scroll | No stutter, bad UX |
-| Complete render debounce (0 renders during scroll, 1 render when scroll stops) | No stutter, worst UX |
-| Disabling rendering entirely during scroll (diagnostic) | No stutter — confirms Present() is the trigger |
-
-### Key observations
-- Any sustained `Present()` calls during scroll input triggers the issue, regardless of vsync mode or frame rate (even 60fps triggers it)
-- 30fps was the highest rate tested that avoided the stutter on this hardware, but that's hardware-specific and not a real fix
-- Before adding `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT`, the issue also caused brief screen blackouts (~30-100ms) and the mouse cursor lost its black outline (rendered as hardware cursor without antialiasing). These symptoms suggest DXGI independent flip / MPO mode transitions. The waitable object flag fixed those visual artifacts but not the underlying stutter.
-- The stutter is NOT present in other apps rendering at the same refresh rate during scroll — so something about our specific DXGI setup is different
-
-### Theories to investigate next
-
-1. **Child window swap chain**: We create the swap chain on a WS_CHILD render area window, not the main window. This is unusual — most apps use the main window or DirectComposition. The DWM/driver may handle child window swap chains differently, possibly falling back to a less optimal composition path that interacts badly with rapid presents during scroll input.
-
-2. **DirectComposition swap chain**: Try `CreateSwapChainForComposition` + `IDCompositionDevice` instead of `CreateSwapChainForHwnd`. This is what modern apps (Chrome, Edge, etc.) use and gives the compositor explicit control over presentation, potentially avoiding the driver issue entirely.
-
-3. **Move swap chain to main window**: Instead of a child window, target the main window and use D3D11 viewport/scissor to render only in the area below the tab bar and above the status bar. Eliminates the child window variable.
-
-4. **DXGI_SCALING_STRETCH vs DXGI_SCALING_NONE**: We use DXGI_SCALING_NONE (for clean resize behavior). Try reverting to SCALING_STRETCH to see if this flag contributes to the issue. Would need an alternative solution for resize stretching.
-
-5. **Test on different GPU/driver**: The issue may be specific to the current GPU driver. Testing on different hardware would confirm whether it's a universal issue or driver-specific.
-
-6. **GPU driver version**: Check if updating/rolling back the GPU driver changes behavior.
-
-### Related changes made during investigation (may want to keep)
-- `DXGI_SCALING_NONE` on swap chain — prevents DWM from stretching old frame during resize
-- `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` + `SetMaximumFrameLatency(1)` — prevents independent flip mode transitions (screen blanking, cursor artifacts)
-- Render in `OnResize()` with `Present(0, 0)` — provides live redraw during window resize drag
-- `EndFrame(bool vsync)` parameter — useful for resize renders
+| DirectComposition swap chain (no effect group) | Still stutters |
+| IDCompositionVisual3::SetOpacity(254/255) | Still stutters |
+| IDCompositionEffectGroup + identity 3D transform | Still stutters (DWM optimizes identity away) |
+| **DirectComposition + IDCompositionEffectGroup opacity** | **Fixed** |
