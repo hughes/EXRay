@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.1 - 2026-03-06
+
+- Add update checking
+- Fix stutter issue with high inertia scroll wheel
+
 ## 0.1.0 - 2026-03-01
 
 Initial release.

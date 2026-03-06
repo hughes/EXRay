@@ -5,8 +5,8 @@
 // Version info — single source of truth for VERSIONINFO + About dialog
 #define EXRAY_VERSION_MAJOR 0
 #define EXRAY_VERSION_MINOR 1
-#define EXRAY_VERSION_PATCH 0
-#define EXRAY_VERSION_STR "0.1.0"
+#define EXRAY_VERSION_PATCH 1
+#define EXRAY_VERSION_STR "0.1.1"
 #define EXRAY_COPYRIGHT "Copyright \xA9 2026 EXRay contributors"
 
 // Wide-string versions for C++ code
