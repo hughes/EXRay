@@ -39,7 +39,7 @@ The workflow only runs for tags pushed from `main`.
 - [x] Recent files in File menu
 - [x] Window title shows current filename
 - [x] Embed `VERSIONINFO` resource in RC file (version, copyright, description)
-- [ ] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
+- [x] Investigate scroll stutter fix (DirectComposition swap chain or other approach from BUGS.md)
 - [x] Update check — background WinHTTP GET to `api.github.com/repos/hughes/EXRay/releases/latest`, compare `tag_name` semver to current version. If newer: asterisk on Help menu, "Update available" line in About dialog. No interruptions. Requires at least one published release to test against.
 - [x] Make sure all environment-specific stuff referencing the local development paths is removed.
 
@@ -110,7 +110,7 @@ The workflow only runs for tags pushed from `main`.
 
 ## 10. Documentation
 
-- [ ] Polish `README.md` — feature list, screenshots/GIF, build instructions, download link
+- [x] Polish `README.md` — feature list, screenshots/GIF, build instructions, download link
 - [x] Keyboard shortcuts / controls reference
 - [x] Supported EXR features and limitations — added to README.md
 

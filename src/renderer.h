@@ -7,6 +7,7 @@
 #endif
 
 #include <d3d11_1.h>
+#include <dcomp.h>
 #include <dxgi1_6.h>
 #include <windows.h>
 #include <wrl/client.h>
@@ -112,6 +113,12 @@ class Renderer
     ComPtr<ID3D11Texture2D> m_histBgTexture;
     ComPtr<ID3D11ShaderResourceView> m_histBgSRV;
     DXGI_FORMAT m_histBgFormat = DXGI_FORMAT_UNKNOWN;
+
+    // DirectComposition (used instead of HWND-based swap chain to avoid
+    // DWM/driver stutter when presenting during scroll input)
+    ComPtr<IDCompositionDevice> m_dcompDevice;
+    ComPtr<IDCompositionTarget> m_dcompTarget;
+    ComPtr<IDCompositionVisual> m_dcompVisual;
 
     // HDR state
     HDRDisplayInfo m_hdrInfo;

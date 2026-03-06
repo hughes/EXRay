@@ -307,16 +307,14 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
     desc.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT;
     desc.BufferCount = 2;
     desc.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD;
+    desc.Scaling = DXGI_SCALING_STRETCH;
 
     if (m_useWARP)
     {
-        // WARP doesn't support DXGI_SCALING_NONE or waitable swap chains
-        desc.Scaling = DXGI_SCALING_STRETCH;
         desc.Flags = 0;
     }
     else
     {
-        desc.Scaling = DXGI_SCALING_NONE;
         desc.Flags = DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT;
     }
 
@@ -325,9 +323,57 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
     else
         desc.Format = DXGI_FORMAT_B8G8R8A8_UNORM;
 
-    hr = factory->CreateSwapChainForHwnd(m_device.Get(), hwnd, &desc, nullptr, nullptr, &m_swapchain);
-    if (FAILED(hr))
-        return false;
+    // Use DirectComposition swap chain to avoid DWM/driver stutter with
+    // HWND-based child window swap chains during rapid Present() calls.
+    // Falls back to CreateSwapChainForHwnd if DComp setup fails.
+    bool useDComp = !m_useWARP;
+    if (useDComp)
+    {
+        hr = factory->CreateSwapChainForComposition(m_device.Get(), &desc, nullptr, &m_swapchain);
+        if (SUCCEEDED(hr))
+            hr = DCompositionCreateDevice(dxgiDevice.Get(), IID_PPV_ARGS(&m_dcompDevice));
+        if (SUCCEEDED(hr))
+            hr = m_dcompDevice->CreateTargetForHwnd(hwnd, TRUE, &m_dcompTarget);
+        if (SUCCEEDED(hr))
+            hr = m_dcompDevice->CreateVisual(&m_dcompVisual);
+        if (SUCCEEDED(hr))
+        {
+            m_dcompVisual->SetContent(m_swapchain.Get());
+            // Attach an effect group with sub-opaque value to prevent the DWM
+            // from promoting this visual to independent flip mode.  The mode
+            // *transition* (composed ↔ independent flip) during rapid Present()
+            // calls causes system-wide stutter; the effect group forces the DWM
+            // to always composite, avoiding the transition.
+            // 254/255 ≈ 0.996 opacity — imperceptible (<0.4% luminance), but
+            // the DWM cannot optimize it away (identity 3D transforms ARE
+            // optimized away and don't prevent promotion).
+            ComPtr<IDCompositionEffectGroup> effectGroup;
+            if (SUCCEEDED(m_dcompDevice->CreateEffectGroup(&effectGroup)))
+            {
+                effectGroup->SetOpacity(254.0f / 255.0f);
+                m_dcompVisual->SetEffect(effectGroup.Get());
+            }
+            m_dcompTarget->SetRoot(m_dcompVisual.Get());
+            hr = m_dcompDevice->Commit();
+        }
+
+        if (FAILED(hr))
+        {
+            // DComp failed — clean up and fall back to HWND-based
+            m_dcompVisual.Reset();
+            m_dcompTarget.Reset();
+            m_dcompDevice.Reset();
+            m_swapchain.Reset();
+            useDComp = false;
+        }
+    }
+
+    if (!useDComp)
+    {
+        hr = factory->CreateSwapChainForHwnd(m_device.Get(), hwnd, &desc, nullptr, nullptr, &m_swapchain);
+        if (FAILED(hr))
+            return false;
+    }
 
     // Set color space for HDR
     if (m_hdrInfo.isHDRCapable)
