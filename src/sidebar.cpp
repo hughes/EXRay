@@ -6,10 +6,11 @@
 
 #include "sidebar.h"
 
-#include <commctrl.h>
 #include <algorithm>
 #include <cmath>
+#include <commctrl.h>
 #include <cstdio>
+
 
 static const wchar_t* const kSidebarClassName = L"EXRay_Sidebar";
 
@@ -29,11 +30,16 @@ static COLORREF ChannelColor(int ch)
 {
     switch (ch)
     {
-    case 0: return RGB(200, 200, 200); // Luminance
-    case 1: return RGB(220, 60, 60);   // Red
-    case 2: return RGB(60, 200, 60);   // Green
-    case 3: return RGB(60, 100, 220);  // Blue
-    default: return RGB(200, 200, 200);
+    case 0:
+        return RGB(200, 200, 200); // Luminance
+    case 1:
+        return RGB(220, 60, 60); // Red
+    case 2:
+        return RGB(60, 200, 60); // Green
+    case 3:
+        return RGB(60, 100, 220); // Blue
+    default:
+        return RGB(200, 200, 200);
     }
 }
 
@@ -65,11 +71,9 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
         font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
     // Channel selector combo box
-    m_channelCombo = CreateWindowExW(0, WC_COMBOBOXW, nullptr,
-                                     WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP,
-                                     0, 0, 0, 0, m_hwnd,
-                                     reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelComboId)),
-                                     hInstance, nullptr);
+    m_channelCombo =
+        CreateWindowExW(0, WC_COMBOBOXW, nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP, 0, 0, 0, 0,
+                        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelComboId)), hInstance, nullptr);
     SendMessageW(m_channelCombo, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
     SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Luminance"));
     SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Red"));
@@ -79,36 +83,36 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     SendMessageW(m_channelCombo, CB_SETCURSEL, 4, 0); // Default: All
 
     // Exposure trackbar
-    m_exposureTrack = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
-                                      WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                                      0, 0, 0, 0, m_hwnd,
-                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExposureTrackId)),
-                                      hInstance, nullptr);
+    m_exposureTrack =
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 0, 0, 0, 0, m_hwnd,
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExposureTrackId)), hInstance, nullptr);
     SendMessageW(m_exposureTrack, TBM_SETRANGEMIN, FALSE, kExpTrackMin);
     SendMessageW(m_exposureTrack, TBM_SETRANGEMAX, FALSE, kExpTrackMax);
     SendMessageW(m_exposureTrack, TBM_SETPOS, TRUE, 0);
-    SendMessageW(m_exposureTrack, TBM_SETLINESIZE, 0, 1);  // arrow keys = 0.25 EV
-    SendMessageW(m_exposureTrack, TBM_SETPAGESIZE, 0, 4);  // page = 1.0 EV
+    SendMessageW(m_exposureTrack, TBM_SETLINESIZE, 0, 1); // arrow keys = 0.25 EV
+    SendMessageW(m_exposureTrack, TBM_SETPAGESIZE, 0, 4); // page = 1.0 EV
 
     // Auto-exposure button
-    m_autoExpButton = CreateWindowExW(0, WC_BUTTONW, L"Auto",
-                                      WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
-                                      0, 0, 0, 0, m_hwnd,
-                                      reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoExpButtonId)),
-                                      hInstance, nullptr);
+    m_autoExpButton =
+        CreateWindowExW(0, WC_BUTTONW, L"Auto", WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON, 0, 0, 0, 0, m_hwnd,
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAutoExpButtonId)), hInstance, nullptr);
     SendMessageW(m_autoExpButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
 
     // Gamma trackbar
-    m_gammaTrack = CreateWindowExW(0, TRACKBAR_CLASSW, nullptr,
-                                   WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                                   0, 0, 0, 0, m_hwnd,
-                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGammaTrackId)),
-                                   hInstance, nullptr);
+    m_gammaTrack =
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 0, 0, 0, 0, m_hwnd,
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGammaTrackId)), hInstance, nullptr);
     SendMessageW(m_gammaTrack, TBM_SETRANGEMIN, FALSE, kGammaTrackMin);
     SendMessageW(m_gammaTrack, TBM_SETRANGEMAX, FALSE, kGammaTrackMax);
     SendMessageW(m_gammaTrack, TBM_SETPOS, TRUE, TrackPosFromGamma(m_gamma));
-    SendMessageW(m_gammaTrack, TBM_SETLINESIZE, 0, 1);  // arrow keys = 0.05
-    SendMessageW(m_gammaTrack, TBM_SETPAGESIZE, 0, 2);  // page = 0.10
+    SendMessageW(m_gammaTrack, TBM_SETLINESIZE, 0, 1); // arrow keys = 0.05
+    SendMessageW(m_gammaTrack, TBM_SETPAGESIZE, 0, 2); // page = 0.10
+
+    // Layer listbox (hidden until layers are set)
+    m_layerList =
+        CreateWindowExW(0, WC_LISTBOXW, nullptr, WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT, 0, 0, 0, 0,
+                        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLayerListId)), hInstance, nullptr);
+    SendMessageW(m_layerList, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
 
     return true;
 }
@@ -147,6 +151,76 @@ void Sidebar::SetExposureGamma(float exposure, float gamma, bool isHDR)
     m_suppressTrackbar = false;
 
     ShowWindow(m_gammaTrack, isHDR ? SW_HIDE : SW_SHOW);
+    LayoutControls();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
+{
+    m_layerInfo = info;
+    m_activeLayer = activeLayer;
+
+    m_suppressLayerChange = true;
+    SendMessageW(m_layerList, LB_RESETCONTENT, 0, 0);
+
+    bool hasLayers = info.layers.size() > 1;
+    ShowWindow(m_layerList, hasLayers ? SW_SHOW : SW_HIDE);
+
+    if (hasLayers)
+    {
+        // Helper to convert UTF-8 to wide string
+        auto toWide = [](const std::string& s) -> std::wstring
+        {
+            if (s.empty())
+                return {};
+            int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+            std::wstring w(len - 1, L'\0');
+            MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), len);
+            return w;
+        };
+
+        bool multiPart = info.partCount > 1;
+
+        for (const auto& layer : info.layers)
+        {
+            std::wstring label;
+
+            // For multi-part files, prefix with part name or index
+            if (multiPart)
+            {
+                if (!layer.partName.empty())
+                    label = toWide(layer.partName) + L"/";
+                else
+                {
+                    wchar_t buf[16];
+                    swprintf_s(buf, L"part%d/", layer.partIndex);
+                    label = buf;
+                }
+            }
+
+            // Layer name
+            if (layer.name.empty())
+                label += L"(default)";
+            else
+                label += toWide(layer.name);
+
+            // Append channel list
+            label += L"  ";
+            for (size_t i = 0; i < layer.channels.size(); i++)
+            {
+                if (i > 0)
+                    label += L",";
+                label += toWide(layer.channels[i]);
+            }
+
+            SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+        }
+
+        if (activeLayer >= 0 && activeLayer < static_cast<int>(info.layers.size()))
+            SendMessageW(m_layerList, LB_SETCURSEL, activeLayer, 0);
+    }
+
+    m_suppressLayerChange = false;
     LayoutControls();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
@@ -195,6 +269,21 @@ void Sidebar::LayoutControls()
 
         // Gamma trackbar
         MoveWindow(m_gammaTrack, m, y, w - 2 * m, trackH, TRUE);
+        y += trackH + m;
+    }
+
+    // Layer browser — only when multiple layers exist
+    if (m_layerInfo.layers.size() > 1)
+    {
+        // "Layers" label drawn in OnPaint
+        y += labelH + MulDiv(2, dpi, 96);
+
+        int layerCount = static_cast<int>(m_layerInfo.layers.size());
+        int itemH = MulDiv(18, dpi, 96);
+        int maxVisibleItems = 8;
+        int visibleItems = (std::min)(layerCount, maxVisibleItems);
+        int listH = visibleItems * itemH + 4; // +4 for border
+        MoveWindow(m_layerList, m, y, w - 2 * m, listH, TRUE);
     }
 }
 
@@ -255,8 +344,8 @@ void Sidebar::OnPaint()
             constexpr float kDispRange = kDispMax - kDispMin;
 
             // Fixed marker positions in output space
-            constexpr float kClipLog2 = 0.0f;       // log2(1.0) — SDR white
-            constexpr float kCrushLog2 = -6.644f;    // log2(0.01) — 1% black
+            constexpr float kClipLog2 = 0.0f;     // log2(1.0) — SDR white
+            constexpr float kCrushLog2 = -6.644f; // log2(0.01) — 1% black
 
             float clipT = (kClipLog2 - kDispMin) / kDispRange;
             float crushT = (kCrushLog2 - kDispMin) / kDispRange;
@@ -271,29 +360,35 @@ void Sidebar::OnPaint()
             bmi.bmiHeader.biCompression = BI_RGB;
 
             uint32_t* pixels = nullptr;
-            HBITMAP histBmp = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS,
-                                               reinterpret_cast<void**>(&pixels), nullptr, 0);
+            HBITMAP histBmp =
+                CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&pixels), nullptr, 0);
             if (histBmp && pixels)
             {
                 // Background: darken crush region, brighten clip region
                 int clipPx = static_cast<int>(clipT * barAreaW);
                 int crushPx = static_cast<int>(crushT * barAreaW);
-                if (clipPx < 0) clipPx = 0;
-                if (clipPx > barAreaW) clipPx = barAreaW;
-                if (crushPx < 0) crushPx = 0;
-                if (crushPx > barAreaW) crushPx = barAreaW;
+                if (clipPx < 0)
+                    clipPx = 0;
+                if (clipPx > barAreaW)
+                    clipPx = barAreaW;
+                if (crushPx < 0)
+                    crushPx = 0;
+                if (crushPx > barAreaW)
+                    crushPx = barAreaW;
 
-                uint32_t bgNormal = 0x001A1A1A;  // RGB(0x1A, 0x1A, 0x1A)
-                uint32_t bgCrush  = 0x000E0E0E;  // darker
-                uint32_t bgClip   = 0x002A2A2A;  // brighter
+                uint32_t bgNormal = 0x001A1A1A; // RGB(0x1A, 0x1A, 0x1A)
+                uint32_t bgCrush = 0x000E0E0E;  // darker
+                uint32_t bgClip = 0x002A2A2A;   // brighter
 
                 for (int row = 0; row < barAreaH; row++)
                 {
                     for (int px = 0; px < barAreaW; px++)
                     {
                         uint32_t bg = bgNormal;
-                        if (px < crushPx) bg = bgCrush;
-                        else if (px >= clipPx) bg = bgClip;
+                        if (px < crushPx)
+                            bg = bgCrush;
+                        else if (px >= clipPx)
+                            bg = bgClip;
                         pixels[row * barAreaW + px] = bg;
                     }
                 }
@@ -311,10 +406,12 @@ void Sidebar::OnPaint()
                     // Map to scene log2 value
                     float sceneLog2 = outLog2 - m_exposure;
                     // Map to bin index
-                    if (sceneRange <= 0.0f) return 0.0f;
+                    if (sceneRange <= 0.0f)
+                        return 0.0f;
                     float t = (sceneLog2 - m_histogram.log2Min) / sceneRange;
                     int bin = static_cast<int>(t * HistogramData::kBinCount);
-                    if (bin < 0 || bin >= HistogramData::kBinCount) return 0.0f;
+                    if (bin < 0 || bin >= HistogramData::kBinCount)
+                        return 0.0f;
                     return bins[bin];
                 };
 
@@ -328,8 +425,10 @@ void Sidebar::OnPaint()
                         int bBarH = static_cast<int>(getBinValue(m_histogram.blue, px) * barAreaH);
 
                         int maxH = rBarH;
-                        if (gBarH > maxH) maxH = gBarH;
-                        if (bBarH > maxH) maxH = bBarH;
+                        if (gBarH > maxH)
+                            maxH = gBarH;
+                        if (bBarH > maxH)
+                            maxH = bBarH;
 
                         for (int row = 0; row < maxH && row < barAreaH; row++)
                         {
@@ -337,14 +436,86 @@ void Sidebar::OnPaint()
                             int pb = (p & 0xFF);
                             int pg = ((p >> 8) & 0xFF);
                             int pr = ((p >> 16) & 0xFF);
-                            if (row < rBarH) { pr += 90; pg += 15; pb += 15; }
-                            if (row < gBarH) { pr += 15; pg += 80; pb += 15; }
-                            if (row < bBarH) { pr += 15; pg += 15; pb += 90; }
-                            if (pr > 255) pr = 255;
-                            if (pg > 255) pg = 255;
-                            if (pb > 255) pb = 255;
+                            if (row < rBarH)
+                            {
+                                pr += 90;
+                                pg += 15;
+                                pb += 15;
+                            }
+                            if (row < gBarH)
+                            {
+                                pr += 15;
+                                pg += 80;
+                                pb += 15;
+                            }
+                            if (row < bBarH)
+                            {
+                                pr += 15;
+                                pg += 15;
+                                pb += 90;
+                            }
+                            if (pr > 255)
+                                pr = 255;
+                            if (pg > 255)
+                                pg = 255;
+                            if (pb > 255)
+                                pb = 255;
                             p = static_cast<uint32_t>(pb | (pg << 8) | (pr << 16));
                         }
+                    }
+
+                    // Luminance curve: smooth connected line with soft glow
+                    // First pass: compute float heights for all pixels
+                    std::vector<float> lumHeights(barAreaW);
+                    for (int px = 0; px < barAreaW; px++)
+                        lumHeights[px] = getBinValue(m_histogram.luminance, px) * barAreaH;
+
+                    // Blend helper: additively blend white at given alpha onto a pixel
+                    auto blendWhite = [&](int px, int row, float alpha)
+                    {
+                        if (row < 0 || row >= barAreaH || px < 0 || px >= barAreaW)
+                            return;
+                        uint32_t& p = pixels[row * barAreaW + px];
+                        int pb = (p & 0xFF);
+                        int pg = ((p >> 8) & 0xFF);
+                        int pr = ((p >> 16) & 0xFF);
+                        int add = static_cast<int>(alpha * 255.0f);
+                        pr = (std::min)(pr + add, 255);
+                        pg = (std::min)(pg + add, 255);
+                        pb = (std::min)(pb + add, 255);
+                        p = static_cast<uint32_t>(pb | (pg << 8) | (pr << 16));
+                    };
+
+                    // Draw: for each pixel, draw a line segment from prev height to current
+                    for (int px = 0; px < barAreaW; px++)
+                    {
+                        float h0 = (px > 0) ? lumHeights[px - 1] : lumHeights[px];
+                        float h1 = lumHeights[px];
+
+                        // Interpolate to draw smooth vertical span between h0 and h1
+                        float lo = (std::min)(h0, h1);
+                        float hi = (std::max)(h0, h1);
+                        int rowLo = static_cast<int>(lo);
+                        int rowHi = static_cast<int>(hi);
+
+                        // Core line at the top of the luminance value
+                        int coreRow = static_cast<int>(h1);
+                        if (coreRow >= barAreaH)
+                            coreRow = barAreaH - 1;
+
+                        // Vertical fill between connected heights (the "line")
+                        for (int row = rowLo; row <= rowHi && row < barAreaH; row++)
+                            blendWhite(px, row, 0.1f);
+
+                        // Core pixel (brightest)
+                        if (coreRow >= 0)
+                            blendWhite(px, coreRow, 0.25f);
+
+                        // Soft glow: 1px above and below core, dimmer
+                        if (coreRow >= 1)
+                            blendWhite(px, coreRow - 1, 0.1f);
+                        if (coreRow + 1 < barAreaH)
+                            blendWhite(px, coreRow + 1, 0.1f);
                     }
                 }
                 else if (m_histogram.isValid)
@@ -352,9 +523,12 @@ void Sidebar::OnPaint()
                     // Single channel
                     const auto* bins = &m_histogram.luminance;
                     COLORREF color = ChannelColor(m_channelMode);
-                    if (m_channelMode == 1) bins = &m_histogram.red;
-                    else if (m_channelMode == 2) bins = &m_histogram.green;
-                    else if (m_channelMode == 3) bins = &m_histogram.blue;
+                    if (m_channelMode == 1)
+                        bins = &m_histogram.red;
+                    else if (m_channelMode == 2)
+                        bins = &m_histogram.green;
+                    else if (m_channelMode == 3)
+                        bins = &m_histogram.blue;
 
                     int cr = GetRValue(color), cg = GetGValue(color), cb = GetBValue(color);
 
@@ -362,12 +536,12 @@ void Sidebar::OnPaint()
                     {
                         float val = getBinValue(*bins, px);
                         int barH = static_cast<int>(val * barAreaH);
-                        if (barH < 1 && val > 0.0f) barH = 1;
+                        if (barH < 1 && val > 0.0f)
+                            barH = 1;
                         for (int row = 0; row < barH && row < barAreaH; row++)
                         {
                             // BGRA pixel format
-                            pixels[row * barAreaW + px] = static_cast<uint32_t>(
-                                cb | (cg << 8) | (cr << 16));
+                            pixels[row * barAreaW + px] = static_cast<uint32_t>(cb | (cg << 8) | (cr << 16));
                         }
                     }
                 }
@@ -382,8 +556,8 @@ void Sidebar::OnPaint()
                     }
                 };
 
-                drawLine(crushPx, 0x00505050);  // subtle gray for crush
-                drawLine(clipPx,  0x00707070);  // lighter gray for clip
+                drawLine(crushPx, 0x00505050); // subtle gray for crush
+                drawLine(clipPx, 0x00707070);  // lighter gray for clip
 
                 // Blit onto main buffer
                 HDC histDC = CreateCompatibleDC(memDC);
@@ -417,6 +591,15 @@ void Sidebar::OnPaint()
         swprintf_s(gammaLabel, L"Gamma: %.1f", displayGamma);
         RECT gammaLabelRect = {m, y, w - m, y + labelH};
         DrawTextW(memDC, gammaLabel, -1, &gammaLabelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        y += labelH + MulDiv(2, dpi, 96);
+        y += MulDiv(24, dpi, 96) + m; // trackbar height
+    }
+
+    // --- Layer browser section ---
+    if (m_layerInfo.layers.size() > 1)
+    {
+        RECT layerLabelRect = {m, y, w - m, y + labelH};
+        DrawTextW(memDC, L"Layers", -1, &layerLabelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
     }
 
     // Blit
@@ -500,6 +683,18 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             int sel = static_cast<int>(SendMessageW(self->m_channelCombo, CB_GETCURSEL, 0, 0));
             if (sel >= 0 && self->onHistogramChannel)
                 self->onHistogramChannel(sel);
+        }
+        else if (id == kLayerListId && code == LBN_SELCHANGE)
+        {
+            if (!self->m_suppressLayerChange)
+            {
+                int sel = static_cast<int>(SendMessageW(self->m_layerList, LB_GETCURSEL, 0, 0));
+                if (sel >= 0 && sel != self->m_activeLayer && self->onLayerSelect)
+                {
+                    self->m_activeLayer = sel;
+                    self->onLayerSelect(sel);
+                }
+            }
         }
         return 0;
     }

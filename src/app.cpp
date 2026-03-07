@@ -221,6 +221,10 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         SyncSidebar();
         m_needsRedraw = true;
     };
+    sidebar.onLayerSelect = [this](int layerIndex)
+    {
+        LoadLayer(layerIndex);
+    };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
     {
@@ -323,7 +327,12 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.exposure = m_histogram.autoExposure;
             m_viewport.FitToWindow();
 
-            m_openTabs.push_back({cmdLinePath, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma});
+            // Scan layers for initial file
+            std::string layerError;
+            ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
+            m_activeLayer = 0;
+
+            m_openTabs.push_back({cmdLinePath, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}, m_layerInfo, m_activeLayer});
             m_activeTab = 0;
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
@@ -662,6 +671,10 @@ bool App::LoadFile(const std::wstring& path)
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramComputer::Compute(m_image);
 
+        // Scan layers (metadata only)
+        std::string layerError;
+        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
+        m_activeLayer = 0;
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
@@ -689,6 +702,39 @@ bool App::LoadFile(const std::wstring& path)
     }
 }
 
+bool App::LoadLayer(int layerIndex)
+{
+    if (m_activeTab < 0 || layerIndex < 0 || layerIndex >= static_cast<int>(m_layerInfo.layers.size()))
+        return false;
+
+    std::string errorMsg;
+    ImageData newImage;
+    const std::wstring& path = m_openTabs[m_activeTab].path;
+
+    if (ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], newImage, errorMsg))
+    {
+        m_image = std::move(newImage);
+        m_renderer.UploadImage(m_image);
+        m_histogram = HistogramComputer::Compute(m_image);
+        m_activeLayer = layerIndex;
+
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+        return true;
+    }
+    else if (!m_smokeTest)
+    {
+        int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
+        std::wstring wideError(len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
+        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+    }
+    return false;
+}
+
 void App::OpenFile(const std::wstring& path)
 {
     // Check if file is already open (case-insensitive)
@@ -710,7 +756,7 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
-    m_openTabs.push_back({path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}});
+    m_openTabs.push_back({path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}, m_layerInfo, m_activeLayer});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
@@ -740,6 +786,8 @@ void App::SwitchToTab(int index)
         // Cache hit — use cached data
         m_image = std::move(m_openTabs[index].image);
         m_histogram = std::move(m_openTabs[index].histogram);
+        m_layerInfo = m_openTabs[index].layerInfo;
+        m_activeLayer = m_openTabs[index].activeLayer;
         m_renderer.UploadImage(m_image);
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
@@ -792,6 +840,8 @@ void App::CloseCurrentTab()
         m_image = ImageData{};
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramData{};
+        m_layerInfo = ExrFileInfo{};
+        m_activeLayer = 0;
         m_window.SetTitle(L"EXRay");
         m_window.SetStatusText(0, L"");
         m_window.SetStatusText(1, L"");
@@ -821,6 +871,8 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].panX = m_viewport.panX;
         m_openTabs[m_activeTab].panY = m_viewport.panY;
         m_openTabs[m_activeTab].gamma = m_viewport.gamma;
+        m_openTabs[m_activeTab].layerInfo = m_layerInfo;
+        m_openTabs[m_activeTab].activeLayer = m_activeLayer;
         if (m_image.IsLoaded())
         {
             m_openTabs[m_activeTab].image = std::move(m_image);
@@ -925,6 +977,7 @@ void App::SyncSidebar()
     Sidebar& sb = m_window.GetSidebar();
     sb.SetHistogramData(m_histogram, m_histogramChannel);
     sb.SetExposureGamma(m_viewport.exposure, m_viewport.gamma, m_viewport.isHDR);
+    sb.SetLayers(m_layerInfo, m_activeLayer);
 }
 
 void App::OpenFileDialog()

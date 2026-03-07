@@ -33,6 +33,7 @@ class App
     void OpenFileDialog();
     void OpenFile(const std::wstring& path);
     bool LoadFile(const std::wstring& path);
+    bool LoadLayer(int layerIndex);
     void SwitchToTab(int index);
     void CloseCurrentTab();
     void SaveTabState();
@@ -67,6 +68,10 @@ class App
     HistogramData m_histogram;
     int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
 
+    // Layer info for current file
+    ExrFileInfo m_layerInfo;
+    int m_activeLayer = 0;
+
     // Grid state
     bool m_showGrid = true;
 
@@ -81,6 +86,8 @@ class App
         float gamma = 1.0f / 2.2f;
         ImageData image;
         HistogramData histogram;
+        ExrFileInfo layerInfo;
+        int activeLayer = 0;
     };
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;

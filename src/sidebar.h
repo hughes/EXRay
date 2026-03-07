@@ -7,6 +7,7 @@
 #endif
 
 #include "histogram.h"
+#include "image.h"
 
 #include <functional>
 #include <windows.h>
@@ -18,6 +19,7 @@ class Sidebar
     using GammaChangeHandler = std::function<void(float newGamma)>;
     using AutoExposureHandler = std::function<void()>;
     using HistogramChannelHandler = std::function<void(int channel)>;
+    using LayerSelectHandler = std::function<void(int layerIndex)>;
 
     bool Create(HWND parent, HINSTANCE hInstance);
 
@@ -30,11 +32,15 @@ class Sidebar
     void SetHistogramData(const HistogramData& data, int channelMode);
     void SetExposureGamma(float exposure, float gamma, bool isHDR);
 
+    // Layer browser
+    void SetLayers(const ExrFileInfo& info, int activeLayer);
+
     // Callbacks
     ExposureChangeHandler onExposureChange;
     GammaChangeHandler onGammaChange;
     AutoExposureHandler onAutoExposure;
     HistogramChannelHandler onHistogramChannel;
+    LayerSelectHandler onLayerSelect;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -52,6 +58,12 @@ class Sidebar
 
     // Histogram channel buttons
     HWND m_channelCombo = nullptr;
+
+    // Layer browser
+    HWND m_layerList = nullptr;
+    ExrFileInfo m_layerInfo;
+    int m_activeLayer = 0;
+    bool m_suppressLayerChange = false;
 
     // Current display state
     HistogramData m_histogram;
@@ -72,4 +84,5 @@ class Sidebar
     static constexpr int kGammaTrackId = 2002;
     static constexpr int kAutoExpButtonId = 2003;
     static constexpr int kChannelComboId = 2004;
+    static constexpr int kLayerListId = 2005;
 };

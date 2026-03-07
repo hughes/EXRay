@@ -40,8 +40,32 @@ struct ImageData
     bool IsLoaded() const { return width > 0 && height > 0; }
 };
 
+// A layer within an EXR file (a group of channels sharing a prefix)
+struct ExrLayer
+{
+    std::string name;                    // layer name ("" for root channels, "diffuse", "specular", etc.)
+    std::vector<std::string> channels;   // channel names within this layer (e.g. "R", "G", "B", "A")
+    int partIndex = 0;                   // which part of a multi-part file this layer belongs to
+    std::string partName;                // part name from the header (for multi-part files)
+};
+
+// Metadata about all layers/parts in an EXR file
+struct ExrFileInfo
+{
+    std::vector<ExrLayer> layers;
+    int partCount = 0;
+};
+
 class ImageLoader
 {
   public:
+    // Load default RGBA (backward compat)
     static bool LoadEXR(const std::wstring& filePath, ImageData& outImage, std::string& errorMsg);
+
+    // Scan file for all layers/channels (metadata only, fast)
+    static bool ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo, std::string& errorMsg);
+
+    // Load a specific layer's channels into RGBA display
+    static bool LoadEXRLayer(const std::wstring& filePath, const ExrLayer& layer,
+                             ImageData& outImage, std::string& errorMsg);
 };
