@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.0 - 2026-03-07
+
+- Add Windows Explorer thumbnail previews for EXR files (shell extension DLL)
+
 ## 0.1.1 - 2026-03-06
 
 - Add update checking
