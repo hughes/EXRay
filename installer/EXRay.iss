@@ -1,9 +1,10 @@
 ; EXRay Inno Setup Script
 ; Build the installer with: iscc installer\EXRay.iss
 ;
-; IMPORTANT: Before compiling the installer, build and stage the release binary:
-;   bazelisk build -c opt //:EXRay
+; IMPORTANT: Before compiling the installer, build and stage the release binaries:
+;   bazelisk build -c opt //:EXRay //:EXRayThumb.dll
 ;   cp bazel-out/x64_windows-opt/bin/EXRay.exe installer/
+;   cp bazel-out/x64_windows-opt/bin/EXRayThumb.dll installer/
 ;
 ; The cp step is required because bazel-out is a symlink that iscc can't follow.
 ; Copying from the -opt path guarantees we never package a debug build.
@@ -50,6 +51,7 @@ Name: "fileassoc"; Description: "Associate .exr files with {#MyAppName}"; GroupD
 
 [Files]
 Source: "{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
+Source: "EXRayThumb.dll"; DestDir: "{app}"; Flags: ignoreversion regserver restartreplace uninsrestartdelete
 Source: "..\LICENSE"; DestDir: "{app}"; DestName: "LICENSE.txt"
 Source: "..\THIRD_PARTY_LICENSES"; DestDir: "{app}"; DestName: "THIRD_PARTY_LICENSES.txt"
 

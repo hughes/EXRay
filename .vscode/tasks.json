@@ -42,7 +42,8 @@
             "args": [
                 "build",
                 "-c", "opt",
-                "//:EXRay"
+                "//:EXRay",
+                "//:EXRayThumb.dll"
             ],
             "group": "build",
             "problemMatcher": [
@@ -57,7 +58,7 @@
         {
             "label": "Stage Installer",
             "type": "shell",
-            "command": "cp bazel-out/x64_windows-opt/bin/EXRay.exe installer/ ; attrib -R installer\\EXRay.exe",
+            "command": "Copy-Item -Path bazel-out/x64_windows-opt/bin/EXRay.exe, bazel-out/x64_windows-opt/bin/EXRayThumb.dll -Destination installer/; attrib -R installer\\EXRay.exe; attrib -R installer\\EXRayThumb.dll",
             "group": "build",
             "dependsOn": "Build Installer"
         },
