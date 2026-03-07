@@ -37,16 +37,6 @@ static HMENU CreateAppMenu()
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GAMMA_UP, L"Increase Gamma\t]");
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GAMMA_DOWN, L"Decrease Gamma\t[");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HISTOGRAM, L"&Histogram\tH");
-
-    HMENU channelMenu = CreatePopupMenu();
-    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_ALL, L"&All");
-    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_LUM, L"&Luminance");
-    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_RED, L"&Red");
-    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_GREEN, L"&Green");
-    AppendMenuW(channelMenu, MF_STRING, IDM_VIEW_CHAN_BLUE, L"&Blue");
-    AppendMenuW(viewMenu, MF_POPUP, reinterpret_cast<UINT_PTR>(channelMenu), L"Histogram &Channel\tC");
-
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GRID, L"Pixel &Grid\tG");
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HDR, L"&HDR Output");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
@@ -88,7 +78,7 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     wc.hIcon = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
     wc.hIconSm = LoadIconW(hInstance, MAKEINTRESOURCEW(IDI_APPICON));
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-    wc.hbrBackground = nullptr;
+    wc.hbrBackground = CreateSolidBrush(RGB(0x2D, 0x2D, 0x2D));
     wc.lpszClassName = kWindowClass;
 
     if (!RegisterClassExW(&wc))
@@ -107,8 +97,10 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
 
     HMENU menu = CreateAppMenu();
 
-    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kWindowClass, L"EXRay", WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-                             1280, 720, nullptr, menu, hInstance, this);
+    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kWindowClass, L"EXRay",
+                             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
+                             nullptr, menu, hInstance, this);
 
     if (!m_hwnd)
         return false;
@@ -125,7 +117,7 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     // 3 parts: pixel coords | RGBA values | image info (DPI-scaled)
     UpdateStatusBarParts();
 
-    // Create tab bar between menu and render area
+    // Tab bar — always visible (empty strip when no tabs)
     m_tabBar = CreateWindowExW(0, WC_TABCONTROLW, nullptr,
                                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FOCUSNEVER, 0, 0, 0, 0, m_hwnd, nullptr,
                                hInstance, nullptr);
@@ -136,6 +128,10 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     // Create render area child window — D3D11 swapchain targets this, not the main window
     m_renderArea = CreateWindowExW(0, kRenderClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
                                    hInstance, this);
+
+    // Create sidebar panel (always visible)
+    m_sidebar.Create(m_hwnd, hInstance);
+    m_sidebar.SetVisible(true);
 
     LayoutChildren();
 
@@ -169,21 +165,51 @@ void Window::LayoutChildren()
     int totalW = rc.right - rc.left;
     int totalH = rc.bottom - rc.top;
 
+    if (m_isFullscreen)
+    {
+        // Fullscreen: render area + sidebar fill the entire client rect
+        int sidebarW = m_sidebar.GetWidth();
+        int renderW = totalW - sidebarW;
+        if (renderW < 0)
+            renderW = 0;
+        if (m_renderArea)
+            MoveWindow(m_renderArea, 0, 0, renderW, totalH, TRUE);
+        if (m_sidebar.GetHwnd())
+            MoveWindow(m_sidebar.GetHwnd(), renderW, 0, sidebarW, totalH, TRUE);
+        if (m_onResize && renderW > 0 && totalH > 0)
+            m_onResize(renderW, totalH);
+        return;
+    }
+
+    // Normal mode: fixed layout — tab bar, status bar, sidebar always present
     if (m_statusBar)
         SendMessageW(m_statusBar, WM_SIZE, 0, 0);
 
     int sbH = GetStatusBarHeight();
     int tabH = GetTabBarHeight();
+    int sidebarW = m_sidebar.GetWidth();
 
+    // Tab bar spans full width
     if (m_tabBar)
         MoveWindow(m_tabBar, 0, 0, totalW, tabH, TRUE);
 
-    int renderH = totalH - tabH - sbH;
-    if (renderH < 0)
-        renderH = 0;
+    // Middle zone: render area + sidebar
+    int middleH = totalH - tabH - sbH;
+    if (middleH < 0)
+        middleH = 0;
+    int renderW = totalW - sidebarW;
+    if (renderW < 0)
+        renderW = 0;
 
     if (m_renderArea)
-        MoveWindow(m_renderArea, 0, tabH, totalW, renderH, TRUE);
+        MoveWindow(m_renderArea, 0, tabH, renderW, middleH, TRUE);
+
+    if (m_sidebar.GetHwnd())
+        MoveWindow(m_sidebar.GetHwnd(), renderW, tabH, sidebarW, middleH, TRUE);
+
+    // Notify app of render area size change (e.g. for swap chain resize)
+    if (m_onResize && renderW > 0 && middleH > 0)
+        m_onResize(renderW, middleH);
 }
 
 void Window::UpdateStatusBarParts()
@@ -193,24 +219,23 @@ void Window::UpdateStatusBarParts()
     SendMessageW(m_statusBar, SB_SETPARTS, 3, reinterpret_cast<LPARAM>(parts));
 }
 
+int Window::GetTabBarHeight() const
+{
+    if (!m_tabBar)
+        return 0;
+    if (TabCtrl_GetItemCount(m_tabBar) == 0)
+        return 0;
+    RECT rc = {0, 0, 100, 0};
+    TabCtrl_AdjustRect(m_tabBar, TRUE, &rc);
+    return rc.bottom - rc.top;
+}
+
 int Window::GetStatusBarHeight() const
 {
     if (!m_statusBar)
         return 0;
     RECT rc;
     GetWindowRect(m_statusBar, &rc);
-    return rc.bottom - rc.top;
-}
-
-int Window::GetTabBarHeight() const
-{
-    if (!m_tabBar || !IsWindowVisible(m_tabBar))
-        return 0;
-    if (TabCtrl_GetItemCount(m_tabBar) == 0)
-        return 0;
-    // Compute tab strip height from a zero-height display rect
-    RECT rc = {0, 0, 100, 0};
-    TabCtrl_AdjustRect(m_tabBar, TRUE, &rc);
     return rc.bottom - rc.top;
 }
 
@@ -241,32 +266,34 @@ void Window::ToggleFullscreen()
         MONITORINFO mi = {sizeof(mi)};
         GetMonitorInfoW(mon, &mi);
 
-        SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
-                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+        // Set fullscreen first — LayoutChildren() uses this flag
+        m_isFullscreen = true;
 
-        // Hide status bar and tab bar in fullscreen
+        // Hide tab bar and status bar (sidebar stays visible)
         if (m_statusBar)
             ShowWindow(m_statusBar, SW_HIDE);
         if (m_tabBar)
             ShowWindow(m_tabBar, SW_HIDE);
 
-        m_isFullscreen = true;
+        SetWindowPos(m_hwnd, HWND_TOP, mi.rcMonitor.left, mi.rcMonitor.top, mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top, SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
     }
     else
     {
-        // Show status bar and tab bar before restoring placement,
-        // because SetWindowPlacement triggers WM_SIZE -> LayoutChildren()
-        // which needs these visible to compute correct layout.
+        // Clear fullscreen first — LayoutChildren() uses this flag
+        m_isFullscreen = false;
+
+        // Restore window chrome and menu bar
+        LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
+        SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
+        SetMenu(m_hwnd, m_savedMenu);
+
+        // Show tab bar and status bar (sidebar was never hidden)
         if (m_statusBar)
             ShowWindow(m_statusBar, SW_SHOW);
         if (m_tabBar)
             ShowWindow(m_tabBar, SW_SHOW);
 
-        // Restore window chrome and menu bar
-        m_isFullscreen = false;
-        LONG style = GetWindowLongW(m_hwnd, GWL_STYLE);
-        SetWindowLongW(m_hwnd, GWL_STYLE, style | WS_OVERLAPPEDWINDOW);
-        SetMenu(m_hwnd, m_savedMenu);
         SetWindowPlacement(m_hwnd, &m_savedPlacement);
         SetWindowPos(m_hwnd, nullptr, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_FRAMECHANGED);
     }
@@ -278,10 +305,17 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
         return;
 
     // Find the File menu (position 0), then the "Open Recent" submenu (position 3)
-    HMENU menuBar = GetMenu(m_hwnd);
-    HMENU fileMenu = GetSubMenu(menuBar, 0);
-    HMENU recentMenu = GetSubMenu(fileMenu, 3);
+    HMENU menu = GetMenu(m_hwnd);
+    if (!menu)
+        menu = m_savedMenu;
+    if (!menu)
+        return;
 
+    HMENU fileMenu = GetSubMenu(menu, 0);
+    if (!fileMenu)
+        return;
+
+    HMENU recentMenu = GetSubMenu(fileMenu, 3); // "Open Recent" is at position 3
     if (!recentMenu)
         return;
 
@@ -295,13 +329,13 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
     }
     else
     {
-        for (size_t i = 0; i < paths.size() && i < 10; ++i)
+        for (size_t i = 0; i < paths.size(); ++i)
         {
-            // Show just the filename for readability
-            const wchar_t* filename = wcsrchr(paths[i].c_str(), L'\\');
-            if (!filename)
-                filename = wcsrchr(paths[i].c_str(), L'/');
-            filename = filename ? filename + 1 : paths[i].c_str();
+            const wchar_t* filename = paths[i].c_str();
+            // Find just the filename portion for display
+            const wchar_t* slash = wcsrchr(filename, L'\\');
+            if (slash)
+                filename = slash + 1;
 
             wchar_t label[MAX_PATH + 16];
             swprintf_s(label, L"&%d  %s", static_cast<int>(i + 1), filename);
@@ -310,7 +344,7 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
     }
 }
 
-void Window::UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid)
+void Window::UpdateMenuChecks(bool showGrid)
 {
     HMENU menu = GetMenu(m_hwnd);
     if (!menu)
@@ -318,19 +352,7 @@ void Window::UpdateMenuChecks(bool showHistogram, int histogramChannel, bool sho
     if (!menu)
         return;
 
-    CheckMenuItem(menu, IDM_VIEW_HISTOGRAM, MF_BYCOMMAND | (showHistogram ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(menu, IDM_VIEW_GRID, MF_BYCOMMAND | (showGrid ? MF_CHECKED : MF_UNCHECKED));
-
-    // Radio check for histogram channel (0=Lum,1=R,2=G,3=B,4=All)
-    static const UINT channelIds[] = {IDM_VIEW_CHAN_LUM, IDM_VIEW_CHAN_RED, IDM_VIEW_CHAN_GREEN, IDM_VIEW_CHAN_BLUE,
-                                      IDM_VIEW_CHAN_ALL};
-    UINT activeId = (histogramChannel >= 0 && histogramChannel <= 4) ? channelIds[histogramChannel] : IDM_VIEW_CHAN_ALL;
-    CheckMenuRadioItem(menu, IDM_VIEW_CHAN_LUM, IDM_VIEW_CHAN_ALL, activeId, MF_BYCOMMAND);
-
-    // Gray out channel items when histogram is off
-    UINT enable = showHistogram ? MF_ENABLED : MF_GRAYED;
-    for (UINT id : channelIds)
-        EnableMenuItem(menu, id, MF_BYCOMMAND | enable);
 }
 
 void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)
@@ -430,14 +452,8 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
         return 0;
 
     case WM_SIZE:
-        self->LayoutChildren();
-        if (wParam != SIZE_MINIMIZED && self->m_onResize)
-        {
-            int w, h;
-            self->GetClientSize(w, h);
-            if (w > 0 && h > 0)
-                self->m_onResize(w, h);
-        }
+        if (wParam != SIZE_MINIMIZED)
+            self->LayoutChildren();
         return 0;
 
     case WM_NOTIFY:

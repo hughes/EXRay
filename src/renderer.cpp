@@ -6,7 +6,6 @@
 
 #include "renderer.h"
 
-#include "histogram.h"
 #include "image.h"
 
 #include <algorithm>
@@ -104,133 +103,6 @@ float4 PSMain(VS_OUTPUT input) : SV_TARGET {
         }
     }
 
-    return float4(result, 1.0);
-}
-)hlsl";
-
-// Histogram overlay shader — full-screen triangle, procedural bars + exposure bracket
-static const char kHistogramShaderSource[] = R"hlsl(
-cbuffer HistogramCB : register(b1) {
-    float panelLeft, panelTop, panelWidth, panelHeight;
-    int   channelMode;
-    float log2Min, log2Max;
-    int   binCount;
-    float tfExposure, tfGamma;
-    int   tfIsHDR;
-    float sdrWhiteNits, displayMaxNits;
-    float3 _pad1;
-};
-
-Texture2D<float> histogramTex : register(t1); // binCount x 4: rows = Lum,R,G,B
-Texture2D        bgTexture    : register(t2); // snapshot of backbuffer under panel
-
-struct VS_OUT {
-    float4 pos : SV_POSITION;
-    float2 ndc : TEXCOORD0;
-};
-
-VS_OUT HistVS(uint vid : SV_VertexID) {
-    VS_OUT o;
-    o.ndc.x = (vid == 1) ?  3.0 : -1.0;
-    o.ndc.y = (vid == 2) ? -3.0 :  1.0;
-    o.pos = float4(o.ndc, 0.0, 1.0);
-    return o;
-}
-
-float4 HistPS(VS_OUT input) : SV_TARGET {
-    float2 ndc = input.ndc;
-
-    float localX = (ndc.x - panelLeft) / panelWidth;
-    float localY = (panelTop - ndc.y) / panelHeight;
-
-    if (localX < 0.0 || localX > 1.0 || localY < 0.0 || localY > 1.0)
-        discard;
-
-    // Sample the image underneath, clamped so HDR can't blow out the overlay
-    static const int kPanelW = 300;
-    static const int kPanelH = 100;
-    float3 bgImage = bgTexture.Load(int3(
-        int(localX * (kPanelW - 1)),
-        int(localY * (kPanelH - 1)), 0)).rgb;
-    bgImage = saturate(bgImage); // clamp to [0,1] — no-op in SDR, caps HDR
-
-    float barY = 1.0 - localY;
-    float range = log2Max - log2Min;
-    float rangeInv = (range > 0.0) ? 1.0 / range : 0.0;
-
-    // Shift histogram in integer bin space — no float subtraction, no jitter.
-    int shiftBins = int(round(tfExposure * rangeInv * float(binCount - 1)));
-    int pixelBin  = int(localX * float(binCount - 1) + 0.5);
-    int srcBin    = pixelBin - shiftBins;
-    bool validBin = (srcBin >= 0 && srcBin < binCount);
-    int bin       = clamp(srcBin, 0, binCount - 1);
-
-    // --- Exposure zones (fixed — represent display output boundaries) ---
-
-    // Dark crush: ~1% output brightness
-    float log2Black = (1.0 / tfGamma) * log2(0.01);
-    float blackX = (log2Black - log2Min) * rangeInv;
-
-    // SDR white: scene value 1.0 maps to output 1.0
-    float sdrWhiteX = (-log2Min) * rangeInv;
-
-    // HDR clip: display max luminance
-    float hdrWhiteX = sdrWhiteX;
-    if (tfIsHDR && sdrWhiteNits > 0.0)
-        hdrWhiteX = (log2(displayMaxNits / sdrWhiteNits) - log2Min) * rangeInv;
-
-    // Background brightness per zone — crushed zone stays black,
-    // normal range is lifted so the dark zone stands out by contrast
-    float zoneBg = 0.08; // SDR visible range — slightly lifted
-    float barScale = 1.0;
-    if (localX < blackX) {
-        zoneBg = 0.0;     // crushed shadows — pure black
-        barScale = 0.6;
-    } else if (tfIsHDR && localX > hdrWhiteX) {
-        zoneBg = 0.18;    // HDR clipped
-        barScale = 1.15;
-    } else if (tfIsHDR && localX > sdrWhiteX) {
-        zoneBg = 0.12;    // HDR extension (above SDR white)
-        barScale = 1.08;
-    } else if (!tfIsHDR && localX > sdrWhiteX) {
-        zoneBg = 0.18;    // SDR clipped
-        barScale = 1.15;
-    }
-
-    // Histogram overlay color + blend weight (alpha used as mix factor below)
-    float4 color = float4(zoneBg, zoneBg, zoneBg, 0.65);
-
-    // --- Draw histogram bars (only where shifted bin is in range) ---
-    if (validBin) {
-        if (channelMode == 4) {
-            float rVal = histogramTex.Load(int3(bin, 1, 0));
-            float gVal = histogramTex.Load(int3(bin, 2, 0));
-            float bVal = histogramTex.Load(int3(bin, 3, 0));
-
-            if (barY < rVal) color = float4(0.7, 0.15, 0.15, 0.75);
-            if (barY < gVal) color.g = max(color.g, 0.7);
-            if (barY < bVal) color.b = max(color.b, 0.7);
-            if (barY < rVal || barY < gVal || barY < bVal) {
-                color.rgb *= barScale;
-                color.a = 0.75;
-            }
-        } else {
-            int row = channelMode;
-            float val = histogramTex.Load(int3(bin, row, 0));
-
-            float3 barColor = float3(0.7, 0.7, 0.7);
-            if (channelMode == 1) barColor = float3(0.85, 0.2, 0.2);
-            if (channelMode == 2) barColor = float3(0.2, 0.85, 0.2);
-            if (channelMode == 3) barColor = float3(0.3, 0.3, 0.85);
-
-            if (barY < val) {
-                color = float4(barColor * barScale, 0.75);
-            }
-        }
-    }
-
-    // Composite in-shader: replaces hardware alpha blend with clamped background
-    float3 result = color.rgb * color.a + bgImage * (1.0 - color.a);
     return float4(result, 1.0);
 }
 )hlsl";
@@ -339,6 +211,8 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
         if (SUCCEEDED(hr))
         {
             m_dcompVisual->SetContent(m_swapchain.Get());
+#define USE_OPACITY_HACK
+#ifdef USE_OPACITY_HACK
             // Attach an effect group with sub-opaque value to prevent the DWM
             // from promoting this visual to independent flip mode.  The mode
             // *transition* (composed ↔ independent flip) during rapid Present()
@@ -350,9 +224,10 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
             ComPtr<IDCompositionEffectGroup> effectGroup;
             if (SUCCEEDED(m_dcompDevice->CreateEffectGroup(&effectGroup)))
             {
-                effectGroup->SetOpacity(254.0f / 255.0f);
+                effectGroup->SetOpacity(254.999f / 255.0f);
                 m_dcompVisual->SetEffect(effectGroup.Get());
             }
+#endif
             m_dcompTarget->SetRoot(m_dcompVisual.Get());
             hr = m_dcompDevice->Commit();
         }
@@ -399,9 +274,6 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
     if (!CreateShaders())
         return false;
 
-    if (!CreateHistogramShaders())
-        return false;
-
     // Create constant buffer
     D3D11_BUFFER_DESC cbDesc = {};
     cbDesc.ByteWidth = sizeof(ViewportCB);
@@ -409,16 +281,6 @@ bool Renderer::Initialize(HWND hwnd, bool forceWARP)
     cbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
     cbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
     m_device->CreateBuffer(&cbDesc, nullptr, &m_constantBuffer);
-
-    // Create histogram constant buffer
-    {
-        D3D11_BUFFER_DESC hcbDesc = {};
-        hcbDesc.ByteWidth = sizeof(HistogramCB);
-        hcbDesc.Usage = D3D11_USAGE_DYNAMIC;
-        hcbDesc.BindFlags = D3D11_BIND_CONSTANT_BUFFER;
-        hcbDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
-        m_device->CreateBuffer(&hcbDesc, nullptr, &m_histogramCB);
-    }
 
     // Create samplers — linear for zoom-out, point for zoom-in (>100%)
     D3D11_SAMPLER_DESC sampDesc = {};
@@ -489,10 +351,6 @@ void Renderer::ReleaseRenderTarget()
 {
     m_context->OMSetRenderTargets(0, nullptr, nullptr);
     m_rtv.Reset();
-    // Force staging texture recreation (backbuffer format may change)
-    m_histBgTexture.Reset();
-    m_histBgSRV.Reset();
-    m_histBgFormat = DXGI_FORMAT_UNKNOWN;
 }
 
 void Renderer::Resize(int width, int height)
@@ -679,140 +537,4 @@ void Renderer::RenderImage(const ViewportCB& vp)
     m_context->PSSetSamplers(0, 1, sampler.GetAddressOf());
 
     m_context->DrawIndexed(6, 0, 0);
-}
-
-bool Renderer::CreateHistogramShaders()
-{
-    ComPtr<ID3DBlob> vsBlob, psBlob, errorBlob;
-
-    HRESULT hr = D3DCompile(kHistogramShaderSource, sizeof(kHistogramShaderSource), "histogram.hlsl", nullptr, nullptr,
-                            "HistVS", "vs_5_0", 0, 0, &vsBlob, &errorBlob);
-    if (FAILED(hr))
-    {
-        OutputDebugStringA(static_cast<const char*>(errorBlob->GetBufferPointer()));
-        return false;
-    }
-
-    hr = D3DCompile(kHistogramShaderSource, sizeof(kHistogramShaderSource), "histogram.hlsl", nullptr, nullptr,
-                    "HistPS", "ps_5_0", 0, 0, &psBlob, &errorBlob);
-    if (FAILED(hr))
-    {
-        OutputDebugStringA(static_cast<const char*>(errorBlob->GetBufferPointer()));
-        return false;
-    }
-
-    m_device->CreateVertexShader(vsBlob->GetBufferPointer(), vsBlob->GetBufferSize(), nullptr, &m_histogramVS);
-    m_device->CreatePixelShader(psBlob->GetBufferPointer(), psBlob->GetBufferSize(), nullptr, &m_histogramPS);
-
-    return true;
-}
-
-void Renderer::UploadHistogram(const HistogramData& histo)
-{
-    m_histogramTexture.Reset();
-    m_histogramSRV.Reset();
-
-    // 256x4 R32_FLOAT texture: row 0=Lum, 1=R, 2=G, 3=B
-    float data[4 * HistogramData::kBinCount];
-    memcpy(data + 0 * HistogramData::kBinCount, histo.luminance.data(), HistogramData::kBinCount * sizeof(float));
-    memcpy(data + 1 * HistogramData::kBinCount, histo.red.data(), HistogramData::kBinCount * sizeof(float));
-    memcpy(data + 2 * HistogramData::kBinCount, histo.green.data(), HistogramData::kBinCount * sizeof(float));
-    memcpy(data + 3 * HistogramData::kBinCount, histo.blue.data(), HistogramData::kBinCount * sizeof(float));
-
-    D3D11_TEXTURE2D_DESC texDesc = {};
-    texDesc.Width = HistogramData::kBinCount;
-    texDesc.Height = 4;
-    texDesc.MipLevels = 1;
-    texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R32_FLOAT;
-    texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
-    texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-    D3D11_SUBRESOURCE_DATA initData = {};
-    initData.pSysMem = data;
-    initData.SysMemPitch = HistogramData::kBinCount * sizeof(float);
-
-    m_device->CreateTexture2D(&texDesc, &initData, &m_histogramTexture);
-    m_device->CreateShaderResourceView(m_histogramTexture.Get(), nullptr, &m_histogramSRV);
-}
-
-void Renderer::RenderHistogram(const HistogramCB& cb)
-{
-    if (!m_histogramSRV)
-        return;
-
-    // --- Snapshot the backbuffer region under the histogram panel ---
-    constexpr int kPanelW = 300;
-    constexpr int kPanelH = 100;
-
-    // NDC → pixel coordinates
-    int srcX = static_cast<int>((cb.panelLeft + 1.0f) * 0.5f * m_width);
-    int srcY = static_cast<int>((1.0f - cb.panelTop) * 0.5f * m_height);
-    int copyW = (std::min)(kPanelW, m_width - srcX);
-    int copyH = (std::min)(kPanelH, m_height - srcY);
-
-    if (copyW > 0 && copyH > 0)
-    {
-        // Get the backbuffer texture
-        ComPtr<ID3D11Texture2D> backBuffer;
-        m_swapchain->GetBuffer(0, IID_PPV_ARGS(&backBuffer));
-
-        D3D11_TEXTURE2D_DESC bbDesc;
-        backBuffer->GetDesc(&bbDesc);
-
-        // (Re)create staging texture if format changed or first use
-        if (m_histBgFormat != bbDesc.Format)
-        {
-            m_histBgTexture.Reset();
-            m_histBgSRV.Reset();
-
-            D3D11_TEXTURE2D_DESC texDesc = {};
-            texDesc.Width = kPanelW;
-            texDesc.Height = kPanelH;
-            texDesc.MipLevels = 1;
-            texDesc.ArraySize = 1;
-            texDesc.Format = bbDesc.Format;
-            texDesc.SampleDesc.Count = 1;
-            texDesc.Usage = D3D11_USAGE_DEFAULT;
-            texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
-
-            m_device->CreateTexture2D(&texDesc, nullptr, &m_histBgTexture);
-            m_device->CreateShaderResourceView(m_histBgTexture.Get(), nullptr, &m_histBgSRV);
-            m_histBgFormat = bbDesc.Format;
-        }
-
-        // Copy the panel region from the backbuffer
-        D3D11_BOX srcBox = {};
-        srcBox.left = srcX;
-        srcBox.top = srcY;
-        srcBox.right = srcX + copyW;
-        srcBox.bottom = srcY + copyH;
-        srcBox.front = 0;
-        srcBox.back = 1;
-        m_context->CopySubresourceRegion(m_histBgTexture.Get(), 0, 0, 0, 0, backBuffer.Get(), 0, &srcBox);
-    }
-
-    // Update histogram constant buffer
-    D3D11_MAPPED_SUBRESOURCE mapped;
-    m_context->Map(m_histogramCB.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped);
-    memcpy(mapped.pData, &cb, sizeof(cb));
-    m_context->Unmap(m_histogramCB.Get(), 0);
-
-    // No vertex buffer — full-screen triangle via SV_VertexID
-    m_context->IASetInputLayout(nullptr);
-    m_context->IASetPrimitiveTopology(D3D11_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
-
-    m_context->VSSetShader(m_histogramVS.Get(), nullptr, 0);
-    m_context->PSSetShader(m_histogramPS.Get(), nullptr, 0);
-    m_context->PSSetConstantBuffers(1, 1, m_histogramCB.GetAddressOf());
-
-    ID3D11ShaderResourceView* srvs[2] = {m_histogramSRV.Get(), m_histBgSRV.Get()};
-    m_context->PSSetShaderResources(1, 2, srvs);
-
-    m_context->Draw(3, 0);
-
-    // Unbind SRVs
-    ID3D11ShaderResourceView* nullSRVs[2] = {nullptr, nullptr};
-    m_context->PSSetShaderResources(1, 2, nullSRVs);
 }

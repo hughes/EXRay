@@ -9,6 +9,8 @@
 #include <windows.h>
 #include <commctrl.h>
 
+#include "sidebar.h"
+
 #include <functional>
 #include <string>
 #include <vector>
@@ -55,9 +57,12 @@ class Window
     void UpdateRecentMenu(const std::vector<std::wstring>& paths);
 
     // Update View menu check marks / radio state
-    void UpdateMenuChecks(bool showHistogram, int histogramChannel, bool showGrid);
+    void UpdateMenuChecks(bool showGrid);
     void UpdateHDRMenu(bool hdrCapable, bool hdrEnabled);
     void MarkHelpMenuUpdate(bool available);
+
+    // Sidebar (always visible)
+    Sidebar& GetSidebar() { return m_sidebar; }
 
     // Tab bar management
     void AddTab(int index, const wchar_t* label);
@@ -89,6 +94,7 @@ class Window
     HWND m_renderArea = nullptr;
     HWND m_tabBar = nullptr;
     HWND m_statusBar = nullptr;
+    Sidebar m_sidebar;
     HACCEL m_accel = nullptr;
     CommandHandler m_onCommand;
     ResizeHandler m_onResize;
@@ -114,6 +120,6 @@ class Window
     WINDOWPLACEMENT m_savedPlacement = {};
     HMENU m_savedMenu = nullptr;
 
-    int GetStatusBarHeight() const;
     int GetTabBarHeight() const;
+    int GetStatusBarHeight() const;
 };

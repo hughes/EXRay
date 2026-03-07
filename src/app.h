@@ -42,7 +42,7 @@ class App
     void EvictDistantTabs();
     void Render();
     void UpdateImageStatusText();
-    HistogramCB BuildHistogramCB() const;
+    void SyncSidebar();
 
     // Recent files (MRU)
     void AddToRecentFiles(std::wstring path);
@@ -63,9 +63,8 @@ class App
     StartupTiming* m_timing = nullptr;
     bool m_needsRedraw = true;
 
-    // Histogram state
+    // Histogram state (data for sidebar display)
     HistogramData m_histogram;
-    bool m_showHistogram = true;
     int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
 
     // Grid state
