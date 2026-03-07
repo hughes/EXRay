@@ -17,6 +17,7 @@ bazel-testlogs/
 *.ilk
 *.lib
 *.exp
+*.dll
 
 # Test artifacts (fetched by tests/fetch_test_images.sh)
 tests/images/

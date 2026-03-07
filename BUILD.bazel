@@ -77,6 +77,47 @@ cc_binary(
     ],
 )
 
+cc_library(
+    name = "thumbnail_lib",
+    srcs = ["src/thumbnail_provider.cpp"],
+    hdrs = ["src/thumbnail_provider.h"],
+    includes = ["src"],
+    deps = ["@openexr//:OpenEXR"],
+    linkopts = [
+        "-DEFAULTLIB:gdi32.lib",
+        "-DEFAULTLIB:ole32.lib",
+    ],
+)
+
+cc_binary(
+    name = "EXRayThumb.dll",
+    srcs = ["src/thumbnail_dll.cpp"],
+    includes = ["src"],
+    linkshared = True,
+    win_def_file = "src/thumbnail_provider.def",
+    deps = [":thumbnail_lib"],
+    linkopts = [
+        "-DEFAULTLIB:shell32.lib",
+        "-DEFAULTLIB:advapi32.lib",
+        "-DEFAULTLIB:shlwapi.lib",
+    ],
+)
+
+cc_test(
+    name = "thumbnail_test",
+    srcs = ["tests/thumbnail_test.cpp"],
+    includes = ["src"],
+    deps = [
+        ":thumbnail_lib",
+        "@openexr//:OpenEXR",
+    ],
+    linkopts = [
+        "-DEFAULTLIB:gdi32.lib",
+        "-DEFAULTLIB:ole32.lib",
+        "-DEFAULTLIB:shlwapi.lib",
+    ],
+)
+
 cc_test(
     name = "update_checker_test",
     srcs = [
