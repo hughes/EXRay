@@ -38,6 +38,13 @@ static HMENU CreateAppMenu()
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GAMMA_DOWN, L"Decrease Gamma\t[");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_GRID, L"Pixel &Grid\tG");
+    AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_CHANNEL_RGB, L"RGB\tShift+~");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_CHANNEL_R, L"Red Channel\tShift+1");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_CHANNEL_G, L"Green Channel\tShift+2");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_CHANNEL_B, L"Blue Channel\tShift+3");
+    AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_CHANNEL_A, L"Alpha Channel\tShift+4");
+    AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_HDR, L"&HDR Output");
     AppendMenuW(viewMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(viewMenu, MF_STRING, IDM_VIEW_FULLSCREEN, L"&Fullscreen\tF11");
@@ -344,7 +351,7 @@ void Window::UpdateRecentMenu(const std::vector<std::wstring>& paths)
     }
 }
 
-void Window::UpdateMenuChecks(bool showGrid)
+void Window::UpdateMenuChecks(bool showGrid, int displayMode)
 {
     HMENU menu = GetMenu(m_hwnd);
     if (!menu)
@@ -353,6 +360,12 @@ void Window::UpdateMenuChecks(bool showGrid)
         return;
 
     CheckMenuItem(menu, IDM_VIEW_GRID, MF_BYCOMMAND | (showGrid ? MF_CHECKED : MF_UNCHECKED));
+
+    // Radio-style check on channel display mode
+    UINT channelIds[] = {IDM_VIEW_CHANNEL_RGB, IDM_VIEW_CHANNEL_R, IDM_VIEW_CHANNEL_G,
+                         IDM_VIEW_CHANNEL_B, IDM_VIEW_CHANNEL_A};
+    for (int i = 0; i < 5; i++)
+        CheckMenuItem(menu, channelIds[i], MF_BYCOMMAND | (displayMode == i ? MF_CHECKED : MF_UNCHECKED));
 }
 
 void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)

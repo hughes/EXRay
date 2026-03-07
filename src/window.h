@@ -57,7 +57,7 @@ class Window
     void UpdateRecentMenu(const std::vector<std::wstring>& paths);
 
     // Update View menu check marks / radio state
-    void UpdateMenuChecks(bool showGrid);
+    void UpdateMenuChecks(bool showGrid, int displayMode);
     void UpdateHDRMenu(bool hdrCapable, bool hdrEnabled);
     void MarkHelpMenuUpdate(bool available);
 

@@ -141,6 +141,7 @@ void Sidebar::SetHistogramData(const HistogramData& data, int channelMode)
 
 void Sidebar::SetExposureGamma(float exposure, float gamma, bool isHDR)
 {
+    bool hdrChanged = (isHDR != m_isHDR);
     m_exposure = exposure;
     m_gamma = gamma;
     m_isHDR = isHDR;
@@ -150,8 +151,11 @@ void Sidebar::SetExposureGamma(float exposure, float gamma, bool isHDR)
     SendMessageW(m_gammaTrack, TBM_SETPOS, TRUE, TrackPosFromGamma(gamma));
     m_suppressTrackbar = false;
 
-    ShowWindow(m_gammaTrack, isHDR ? SW_HIDE : SW_SHOW);
-    LayoutControls();
+    if (hdrChanged)
+    {
+        ShowWindow(m_gammaTrack, isHDR ? SW_HIDE : SW_SHOW);
+        LayoutControls();
+    }
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -721,10 +725,12 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return 1;
 
     case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORLISTBOX:
     {
-        // Dark theme for trackbar backgrounds
+        // Dark theme for trackbar and listbox backgrounds
         HDC childDC = reinterpret_cast<HDC>(wParam);
         SetBkColor(childDC, RGB(0x2D, 0x2D, 0x2D));
+        SetTextColor(childDC, RGB(0xCC, 0xCC, 0xCC));
         static HBRUSH s_darkBrush = CreateSolidBrush(RGB(0x2D, 0x2D, 0x2D));
         return reinterpret_cast<LRESULT>(s_darkBrush);
     }

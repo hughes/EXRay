@@ -26,7 +26,7 @@ cbuffer ViewportCB : register(b0) {
     float    sdrWhiteNits;
     float    displayMaxNits;
     int      showGrid;
-    float    _pad;
+    int      displayMode;
 };
 
 struct VS_INPUT {
@@ -51,13 +51,38 @@ VS_OUTPUT VSMain(VS_INPUT input) {
 
 float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     float4 hdr = imageTexture.Sample(imageSampler, input.uv);
-    float3 exposed = hdr.rgb * exp2(exposure);
+
+    // Solo channel modes: extract single channel as grayscale
+    // displayMode: 0=normal, 1=R, 2=G, 3=B, 4=A
+    float3 exposed;
+    if (displayMode >= 1 && displayMode <= 4) {
+        float ch = (displayMode == 1) ? hdr.r :
+                   (displayMode == 2) ? hdr.g :
+                   (displayMode == 3) ? hdr.b : hdr.a;
+        exposed = ch * exp2(exposure);
+    } else {
+        exposed = hdr.rgb * exp2(exposure);
+    }
 
     float3 result;
     if (isHDR) {
         result = exposed;
     } else {
         result = pow(saturate(exposed), gamma);
+    }
+
+    // Checkerboard transparency — blend image over checker pattern using alpha
+    // Only in normal RGB mode (not solo channel modes)
+    if (displayMode == 0) {
+        uint texW, texH;
+        imageTexture.GetDimensions(texW, texH);
+        float2 imgPos = input.uv * float2(texW, texH); // position in image pixels
+        float checkerSize = max(8.0, 8.0 / zoom); // 8 screen pixels, but at least 1 image pixel
+        int2 cell = int2(floor(imgPos / checkerSize));
+        float checker = ((cell.x + cell.y) & 1) ? 0.3 : 0.2;
+        if (isHDR)
+            checker *= sdrWhiteNits / 80.0;
+        result = lerp(checker, result, hdr.a);
     }
 
     // Pixel grid at high zoom — draw lines at image pixel boundaries

@@ -125,18 +125,21 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (vk == VK_OEM_PLUS || vk == VK_ADD)
         {
             m_viewport.AdjustExposure(0.25f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
         else if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)
         {
             m_viewport.AdjustExposure(-0.25f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
         else if ((vk == VK_OEM_6 || vk == VK_OEM_4) && !m_viewport.isHDR) // [/] — gamma (SDR only)
         {
             m_viewport.AdjustGamma(vk == VK_OEM_6 ? 0.05f : -0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -146,11 +149,18 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             SavePreferences();
             SyncSidebar();
         }
+        else if ((GetKeyState(VK_SHIFT) & 0x8000) &&
+                 (vk == VK_OEM_3 || (vk >= '1' && vk <= '4')))
+        {
+            m_displayMode = (vk == VK_OEM_3) ? 0 : (vk - '0');
+            m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+            m_needsRedraw = true;
+        }
         else if (vk == 'G')
         {
             m_showGrid = !m_showGrid;
             SavePreferences();
-            m_window.UpdateMenuChecks(m_showGrid);
+            m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
             m_needsRedraw = true;
         }
         else if (vk == VK_F11)
@@ -184,6 +194,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.displayMaxNits = m_renderer.GetHDRInfo().maxLuminance;
         }
         m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
     };
@@ -217,7 +228,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     {
         m_histogramChannel = channel;
         SavePreferences();
-        m_window.UpdateMenuChecks(m_showGrid);
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
         SyncSidebar();
         m_needsRedraw = true;
     };
@@ -291,7 +302,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         LoadRecentFiles();
         LoadPreferences();
     }
-    m_window.UpdateMenuChecks(m_showGrid);
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
     SyncSidebar();
 
     // Propagate HDR state to viewport
@@ -343,6 +354,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             swprintf_s(title, L"EXRay - %s", cmdLinePath.c_str());
             m_window.SetTitle(title);
 
+            SyncSidebar();
             UpdateImageStatusText();
             AddToRecentFiles(cmdLinePath);
         }
@@ -458,6 +470,7 @@ void App::Render()
     {
         ViewportCB vp = m_viewport.ToViewportCB();
         vp.showGrid = m_showGrid ? 1 : 0;
+        vp.displayMode = m_displayMode;
         m_renderer.RenderImage(vp);
     }
 
@@ -526,7 +539,17 @@ void App::OnCommand(int commandId)
     case IDM_VIEW_GRID:
         m_showGrid = !m_showGrid;
         SavePreferences();
-        m_window.UpdateMenuChecks(m_showGrid);
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+        m_needsRedraw = true;
+        break;
+
+    case IDM_VIEW_CHANNEL_RGB:
+    case IDM_VIEW_CHANNEL_R:
+    case IDM_VIEW_CHANNEL_G:
+    case IDM_VIEW_CHANNEL_B:
+    case IDM_VIEW_CHANNEL_A:
+        m_displayMode = commandId - IDM_VIEW_CHANNEL_RGB;
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
         m_needsRedraw = true;
         break;
 
@@ -541,6 +564,7 @@ void App::OnCommand(int commandId)
             else
                 m_viewport.displayMaxNits = 80.0f;
             m_window.UpdateHDRMenu(true, newState);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -549,12 +573,14 @@ void App::OnCommand(int commandId)
 
     case IDM_VIEW_EXPOSURE_UP:
         m_viewport.AdjustExposure(0.25f);
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         break;
 
     case IDM_VIEW_EXPOSURE_DOWN:
         m_viewport.AdjustExposure(-0.25f);
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         break;
@@ -563,6 +589,7 @@ void App::OnCommand(int commandId)
         if (!m_viewport.isHDR)
         {
             m_viewport.AdjustGamma(0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -572,6 +599,7 @@ void App::OnCommand(int commandId)
         if (!m_viewport.isHDR)
         {
             m_viewport.AdjustGamma(-0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -653,6 +681,7 @@ void App::OnResize(int width, int height)
         {
             ViewportCB vp = m_viewport.ToViewportCB();
             vp.showGrid = m_showGrid ? 1 : 0;
+            vp.displayMode = m_displayMode;
             m_renderer.RenderImage(vp);
         }
         m_renderer.EndFrame(false);
@@ -685,6 +714,7 @@ bool App::LoadFile(const std::wstring& path)
         swprintf_s(title, L"EXRay - %s", path.c_str());
         m_window.SetTitle(title);
 
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         return true;
@@ -734,6 +764,7 @@ bool App::LoadLayer(int layerIndex)
         if (isMipSwitch && oldWidth > 0.0f)
             m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, ViewportState::kMaxZoom);
 
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         return true;
@@ -828,6 +859,7 @@ void App::SwitchToTab(int index)
 
     EvictDistantTabs();
     StartPreload();
+    SyncSidebar();
     UpdateImageStatusText();
     m_needsRedraw = true;
 }
@@ -966,8 +998,6 @@ void App::EvictDistantTabs()
 
 void App::UpdateImageStatusText()
 {
-    SyncSidebar();
-
     if (!m_image.IsLoaded())
         return;
 
