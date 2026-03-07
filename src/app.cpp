@@ -302,10 +302,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         LoadRecentFiles();
         LoadPreferences();
     }
-    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
-    SyncSidebar();
-
-    // Propagate HDR state to viewport
+    // Propagate HDR state to viewport (before SyncSidebar so gamma slider visibility is correct)
     if (m_renderer.IsHDREnabled())
     {
         m_viewport.isHDR = true;
@@ -313,6 +310,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_viewport.displayMaxNits = hdrInfo.maxLuminance;
     }
     m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+    SyncSidebar();
 
     // Set initial client size in viewport
     int cw, ch;
