@@ -47,6 +47,11 @@ struct ExrLayer
     std::vector<std::string> channels;   // channel names within this layer (e.g. "R", "G", "B", "A")
     int partIndex = 0;                   // which part of a multi-part file this layer belongs to
     std::string partName;                // part name from the header (for multi-part files)
+    bool isTiled = false;                // true if this part uses tiled storage
+    int mipLevel = 0;                    // which mip level to load (0 = full res)
+    int numMipLevels = 1;                // total mip levels available (1 = no mipmaps)
+    int mipWidth = 0;                    // width at this mip level
+    int mipHeight = 0;                   // height at this mip level
 };
 
 // Metadata about all layers/parts in an EXR file

@@ -713,6 +713,16 @@ bool App::LoadLayer(int layerIndex)
 
     if (ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], newImage, errorMsg))
     {
+        // When switching between mip levels of the same layer, scale zoom
+        // so the image occupies the same screen space
+        const auto& oldLayer = m_layerInfo.layers[m_activeLayer];
+        const auto& newLayer = m_layerInfo.layers[layerIndex];
+        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1
+                           && oldLayer.name == newLayer.name
+                           && oldLayer.partIndex == newLayer.partIndex;
+
+        float oldWidth = m_viewport.imageWidth;
+
         m_image = std::move(newImage);
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramComputer::Compute(m_image);
@@ -720,6 +730,9 @@ bool App::LoadLayer(int layerIndex)
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
+
+        if (isMipSwitch && oldWidth > 0.0f)
+            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, ViewportState::kMaxZoom);
 
         UpdateImageStatusText();
         m_needsRedraw = true;

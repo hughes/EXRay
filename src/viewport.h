@@ -9,6 +9,9 @@
 
 struct ViewportState
 {
+    static constexpr float kMinZoom = 0.01f;
+    static constexpr float kMaxZoom = 100.0f;
+
     // Image dimensions (set when image loads)
     float imageWidth = 0;
     float imageHeight = 0;

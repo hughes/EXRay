@@ -13,6 +13,8 @@
 #include <ImfInputPart.h>
 #include <ImfMultiPartInputFile.h>
 #include <ImfRgbaFile.h>
+#include <ImfTileDescription.h>
+#include <ImfTiledInputPart.h>
 #include <windows.h>
 
 #include <algorithm>
@@ -121,6 +123,27 @@ bool ImageLoader::ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo,
             if (header.hasName())
                 partName = header.name();
 
+            // Check if this part is tiled and has mipmaps
+            bool isTiled = header.hasTileDescription();
+            int numMipLevels = 1;
+            std::vector<std::pair<int, int>> mipDimensions; // (width, height) per level
+
+            Imath::Box2i dw = header.dataWindow();
+            int baseWidth = dw.max.x - dw.min.x + 1;
+            int baseHeight = dw.max.y - dw.min.y + 1;
+
+            if (isTiled)
+            {
+                Imf::TiledInputPart tiledPart(file, p);
+                numMipLevels = tiledPart.numLevels();
+                for (int lv = 0; lv < numMipLevels; lv++)
+                    mipDimensions.push_back({tiledPart.levelWidth(lv), tiledPart.levelHeight(lv)});
+            }
+            else
+            {
+                mipDimensions.push_back({baseWidth, baseHeight});
+            }
+
             // Collect all channel names
             std::vector<std::string> allChannels;
             for (auto it = channels.begin(); it != channels.end(); ++it)
@@ -129,6 +152,35 @@ bool ImageLoader::ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo,
             // Group channels by layer prefix
             std::set<std::string> layerNames;
             channels.layers(layerNames);
+
+            // Helper: populate tiled/mip fields and push layer (once per mip level)
+            auto addLayerWithMips = [&](ExrLayer baseLayer)
+            {
+                if (numMipLevels <= 1)
+                {
+                    // Single level (scanline or tiled ONE_LEVEL)
+                    baseLayer.isTiled = isTiled;
+                    baseLayer.mipLevel = 0;
+                    baseLayer.numMipLevels = 1;
+                    baseLayer.mipWidth = mipDimensions[0].first;
+                    baseLayer.mipHeight = mipDimensions[0].second;
+                    outInfo.layers.push_back(std::move(baseLayer));
+                }
+                else
+                {
+                    // Multiple mip levels — create one entry per level
+                    for (int lv = 0; lv < numMipLevels; lv++)
+                    {
+                        ExrLayer mipLayer = baseLayer;
+                        mipLayer.isTiled = true;
+                        mipLayer.mipLevel = lv;
+                        mipLayer.numMipLevels = numMipLevels;
+                        mipLayer.mipWidth = mipDimensions[lv].first;
+                        mipLayer.mipHeight = mipDimensions[lv].second;
+                        outInfo.layers.push_back(std::move(mipLayer));
+                    }
+                }
+            };
 
             // Root-level channels (no dot prefix)
             {
@@ -142,7 +194,7 @@ bool ImageLoader::ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo,
                         rootLayer.channels.push_back(ch);
                 }
                 if (!rootLayer.channels.empty())
-                    outInfo.layers.push_back(std::move(rootLayer));
+                    addLayerWithMips(std::move(rootLayer));
             }
 
             // Named layers
@@ -163,7 +215,7 @@ bool ImageLoader::ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo,
                     layer.channels.push_back(suffix);
                 }
                 if (!layer.channels.empty())
-                    outInfo.layers.push_back(std::move(layer));
+                    addLayerWithMips(std::move(layer));
             }
         }
 
@@ -217,12 +269,25 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             return false;
         }
 
-        Imf::InputPart part(file, layer.partIndex);
-        const Imf::Header& header = part.header();
-        Imath::Box2i dw = header.dataWindow();
+        const Imf::Header& header = file.header(layer.partIndex);
 
-        int width = dw.max.x - dw.min.x + 1;
-        int height = dw.max.y - dw.min.y + 1;
+        // Determine dimensions based on whether this is a tiled mip level
+        int width, height;
+        Imath::Box2i dw;
+
+        if (layer.isTiled)
+        {
+            Imf::TiledInputPart tiledPart(file, layer.partIndex);
+            dw = tiledPart.dataWindowForLevel(layer.mipLevel);
+            width = dw.max.x - dw.min.x + 1;
+            height = dw.max.y - dw.min.y + 1;
+        }
+        else
+        {
+            dw = header.dataWindow();
+            width = dw.max.x - dw.min.x + 1;
+            height = dw.max.y - dw.min.y + 1;
+        }
 
         if (width <= 0 || height <= 0)
         {
@@ -258,7 +323,6 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             }
             else if (!layer.channels.empty())
             {
-                // Use first channel as grayscale
                 grayscale = true;
                 soloChannel = layer.channels[0];
             }
@@ -287,9 +351,7 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
         if (grayscale)
         {
             std::string fullName = prefix + soloChannel;
-            // Map single channel to R, G, B (grayscale display)
             fb.insert(fullName.c_str(), Imf::Slice(Imf::FLOAT, base + 0, xStride, yStride));
-            // We'll copy R to G and B after reading
         }
         else
         {
@@ -303,8 +365,19 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
                 fb.insert((prefix + aName).c_str(), Imf::Slice(Imf::FLOAT, base + 3 * sizeof(float), xStride, yStride));
         }
 
-        part.setFrameBuffer(fb);
-        part.readPixels(dw.min.y, dw.max.y);
+        if (layer.isTiled)
+        {
+            Imf::TiledInputPart tiledPart(file, layer.partIndex);
+            tiledPart.setFrameBuffer(fb);
+            int lv = layer.mipLevel;
+            tiledPart.readTiles(0, tiledPart.numXTiles(lv) - 1, 0, tiledPart.numYTiles(lv) - 1, lv);
+        }
+        else
+        {
+            Imf::InputPart part(file, layer.partIndex);
+            part.setFrameBuffer(fb);
+            part.readPixels(dw.min.y, dw.max.y);
+        }
 
         // For grayscale, copy R to G and B
         if (grayscale)

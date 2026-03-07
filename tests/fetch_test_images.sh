@@ -37,6 +37,7 @@ CATEGORIES=(
     [multipart]="Multi-part files (expect graceful failure)"
     [multiview]="Multi-view/stereo files (expect graceful failure)"
     [deep]="Deep data files (expect graceful failure)"
+    [multiresolution]="Multi-resolution mip-mapped and rip-mapped images"
     [damaged]="Fuzzed/corrupt files for crash resilience"
 )
 
@@ -112,13 +113,24 @@ deep_files=(
     "v2/Stereo/composited.exr"
 )
 
+multiresolution_files=(
+    "MultiResolution/ColorCodedLevels.exr"
+    "MultiResolution/MirrorPattern.exr"
+    "MultiResolution/KernerEnvCube.exr"
+    "MultiResolution/OrientationCube.exr"
+    "MultiResolution/OrientationLatLong.exr"
+    "MultiResolution/PeriodicPattern.exr"
+    "MultiResolution/WavyLinesCube.exr"
+    "MultiResolution/StageEnvCube.exr"
+)
+
 damaged_files=(
     "Damaged/asan_heap-oob_4cb169_255_cc7ac9cde4b8634b31cb41c8fe89b92d_exr"
     "Damaged/asan_heap-oob_4cb169_380_4572f174dd4e48b879ca6d516486f30e_exr"
     "Damaged/asan_heap-oob_4cb169_978_5f00ce89c3847e739b256efc49f312cf_exr"
 )
 
-ALL_CATEGORIES=(scanline tiled lumachroma edge displaywindow multipart multiview deep damaged)
+ALL_CATEGORIES=(scanline tiled multiresolution lumachroma edge displaywindow multipart multiview deep damaged)
 
 # ---------------------------------------------------------------------------
 # Helpers

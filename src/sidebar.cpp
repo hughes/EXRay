@@ -204,13 +204,31 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
             else
                 label += toWide(layer.name);
 
-            // Append channel list
-            label += L"  ";
-            for (size_t i = 0; i < layer.channels.size(); i++)
+            // For mip levels > 0, indent and show level info
+            if (layer.numMipLevels > 1 && layer.mipLevel > 0)
             {
-                if (i > 0)
-                    label += L",";
-                label += toWide(layer.channels[i]);
+                wchar_t buf[64];
+                swprintf_s(buf, L"  Mip %d (%d\u00D7%d)", layer.mipLevel, layer.mipWidth, layer.mipHeight);
+                label = buf;
+            }
+            else
+            {
+                // Append channel list
+                label += L"  ";
+                for (size_t i = 0; i < layer.channels.size(); i++)
+                {
+                    if (i > 0)
+                        label += L",";
+                    label += toWide(layer.channels[i]);
+                }
+
+                // Show dimensions for mip level 0 if mipmaps exist
+                if (layer.numMipLevels > 1)
+                {
+                    wchar_t buf[32];
+                    swprintf_s(buf, L"  (%d\u00D7%d)", layer.mipWidth, layer.mipHeight);
+                    label += buf;
+                }
             }
 
             SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
