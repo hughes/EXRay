@@ -64,6 +64,7 @@ class Sidebar
     ExrFileInfo m_layerInfo;
     int m_activeLayer = 0;
     bool m_suppressLayerChange = false;
+    std::vector<int> m_layerListMapping; // listbox index → ExrLayer index (skipping headers)
 
     // Current display state
     HistogramData m_histogram;

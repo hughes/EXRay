@@ -108,10 +108,11 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     SendMessageW(m_gammaTrack, TBM_SETLINESIZE, 0, 1); // arrow keys = 0.05
     SendMessageW(m_gammaTrack, TBM_SETPAGESIZE, 0, 2); // page = 0.10
 
-    // Layer listbox (hidden until layers are set)
+    // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
     m_layerList =
-        CreateWindowExW(0, WC_LISTBOXW, nullptr, WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT, 0, 0, 0, 0,
-                        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLayerListId)), hInstance, nullptr);
+        CreateWindowExW(0, WC_LISTBOXW, nullptr,
+                        WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
+                        0, 0, 0, 0, m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLayerListId)), hInstance, nullptr);
     SendMessageW(m_layerList, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
 
     return true;
@@ -185,38 +186,53 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
 
         bool multiPart = info.partCount > 1;
 
-        for (const auto& layer : info.layers)
+        for (int idx = 0; idx < static_cast<int>(info.layers.size()); idx++)
         {
+            const auto& layer = info.layers[idx];
             std::wstring label;
+            int indent = 0;
 
-            // For multi-part files, prefix with part name or index
-            if (multiPart)
-            {
-                if (!layer.partName.empty())
-                    label = toWide(layer.partName) + L"/";
-                else
-                {
-                    wchar_t buf[16];
-                    swprintf_s(buf, L"part%d/", layer.partIndex);
-                    label = buf;
-                }
-            }
-
-            // Layer name
-            if (layer.name.empty())
-                label += L"(default)";
-            else
-                label += toWide(layer.name);
-
-            // For mip levels > 0, indent and show level info
             if (layer.numMipLevels > 1 && layer.mipLevel > 0)
             {
+                // Mip child — indented under parent layer
+                indent = multiPart ? 2 : 1;
                 wchar_t buf[64];
-                swprintf_s(buf, L"  Mip %d (%d\u00D7%d)", layer.mipLevel, layer.mipWidth, layer.mipHeight);
+                swprintf_s(buf, L"Mip %d  %d\u00D7%d", layer.mipLevel, layer.mipWidth, layer.mipHeight);
                 label = buf;
             }
             else
             {
+                // Top-level layer (or mip level 0)
+                if (multiPart)
+                {
+                    indent = 1; // layers indent under part
+                    // Check if this is a new part (show part header via indent 0)
+                    bool newPart = (idx == 0) || (info.layers[idx - 1].partIndex != layer.partIndex);
+                    if (newPart)
+                    {
+                        // Insert a non-selectable part header
+                        std::wstring partLabel;
+                        if (!layer.partName.empty())
+                            partLabel = toWide(layer.partName);
+                        else
+                        {
+                            wchar_t buf[16];
+                            swprintf_s(buf, L"Part %d", layer.partIndex);
+                            partLabel = buf;
+                        }
+                        int partIdx = static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0,
+                                                                     reinterpret_cast<LPARAM>(partLabel.c_str())));
+                        // indent=0, flags: high bit marks as header (non-selectable)
+                        SendMessageW(m_layerList, LB_SETITEMDATA, partIdx, 0x80000000);
+                    }
+                }
+
+                // Layer name
+                if (layer.name.empty())
+                    label = L"(default)";
+                else
+                    label = toWide(layer.name);
+
                 // Append channel list
                 label += L"  ";
                 for (size_t i = 0; i < layer.channels.size(); i++)
@@ -230,16 +246,29 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
                 if (layer.numMipLevels > 1)
                 {
                     wchar_t buf[32];
-                    swprintf_s(buf, L"  (%d\u00D7%d)", layer.mipWidth, layer.mipHeight);
+                    swprintf_s(buf, L"  %d\u00D7%d", layer.mipWidth, layer.mipHeight);
                     label += buf;
                 }
             }
 
-            SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+            int listIdx = static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0,
+                                                         reinterpret_cast<LPARAM>(label.c_str())));
+            // Store indent level in item data (low bits = indent, high bit = header flag)
+            SendMessageW(m_layerList, LB_SETITEMDATA, listIdx, indent);
         }
 
-        if (activeLayer >= 0 && activeLayer < static_cast<int>(info.layers.size()))
-            SendMessageW(m_layerList, LB_SETCURSEL, activeLayer, 0);
+        // Map activeLayer (ExrLayer index) to listbox index (which may have header items)
+        m_layerListMapping.clear();
+        int itemCount = static_cast<int>(SendMessageW(m_layerList, LB_GETCOUNT, 0, 0));
+        for (int i = 0; i < itemCount; i++)
+        {
+            LRESULT data = SendMessageW(m_layerList, LB_GETITEMDATA, i, 0);
+            if (!(data & 0x80000000)) // not a header
+                m_layerListMapping.push_back(i);
+        }
+
+        if (activeLayer >= 0 && activeLayer < static_cast<int>(m_layerListMapping.size()))
+            SendMessageW(m_layerList, LB_SETCURSEL, m_layerListMapping[activeLayer], 0);
     }
 
     m_suppressLayerChange = false;
@@ -300,11 +329,11 @@ void Sidebar::LayoutControls()
         // "Layers" label drawn in OnPaint
         y += labelH + MulDiv(2, dpi, 96);
 
-        int layerCount = static_cast<int>(m_layerInfo.layers.size());
-        int itemH = MulDiv(18, dpi, 96);
-        int maxVisibleItems = 8;
-        int visibleItems = (std::min)(layerCount, maxVisibleItems);
-        int listH = visibleItems * itemH + 4; // +4 for border
+        // Fill remaining vertical space
+        int totalH = rc.bottom - rc.top;
+        int listH = totalH - y - m;
+        if (listH < MulDiv(36, dpi, 96))
+            listH = MulDiv(36, dpi, 96); // minimum 2 rows
         MoveWindow(m_layerList, m, y, w - 2 * m, listH, TRUE);
     }
 }
@@ -710,15 +739,139 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         {
             if (!self->m_suppressLayerChange)
             {
-                int sel = static_cast<int>(SendMessageW(self->m_layerList, LB_GETCURSEL, 0, 0));
-                if (sel >= 0 && sel != self->m_activeLayer && self->onLayerSelect)
+                int listIdx = static_cast<int>(SendMessageW(self->m_layerList, LB_GETCURSEL, 0, 0));
+                if (listIdx < 0)
+                    break;
+
+                // Check if this is a header item (non-selectable)
+                LRESULT data = SendMessageW(self->m_layerList, LB_GETITEMDATA, listIdx, 0);
+                if (data & 0x80000000)
                 {
-                    self->m_activeLayer = sel;
-                    self->onLayerSelect(sel);
+                    // Revert selection to active layer
+                    if (self->m_activeLayer >= 0 &&
+                        self->m_activeLayer < static_cast<int>(self->m_layerListMapping.size()))
+                        SendMessageW(self->m_layerList, LB_SETCURSEL,
+                                     self->m_layerListMapping[self->m_activeLayer], 0);
+                    break;
+                }
+
+                // Map listbox index to ExrLayer index
+                int layerIdx = -1;
+                for (int i = 0; i < static_cast<int>(self->m_layerListMapping.size()); i++)
+                {
+                    if (self->m_layerListMapping[i] == listIdx)
+                    {
+                        layerIdx = i;
+                        break;
+                    }
+                }
+
+                if (layerIdx >= 0 && layerIdx != self->m_activeLayer && self->onLayerSelect)
+                {
+                    self->m_activeLayer = layerIdx;
+                    self->onLayerSelect(layerIdx);
                 }
             }
         }
         return 0;
+    }
+
+    case WM_MEASUREITEM:
+    {
+        auto* mis = reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+        if (mis->CtlID == static_cast<UINT>(kLayerListId))
+        {
+            int dpi = GetDpiForWindow(hwnd);
+            mis->itemHeight = MulDiv(18, dpi, 96);
+        }
+        return TRUE;
+    }
+
+    case WM_DRAWITEM:
+    {
+        auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+        if (dis->CtlID == static_cast<UINT>(kLayerListId) && dis->itemID != static_cast<UINT>(-1))
+        {
+            int dpi = GetDpiForWindow(hwnd);
+            int indentPx = MulDiv(14, dpi, 96);
+
+            LRESULT itemData = SendMessageW(dis->hwndItem, LB_GETITEMDATA, dis->itemID, 0);
+            int indent = static_cast<int>(itemData & 0x7FFFFFFF);
+            bool isHeader = (itemData & 0x80000000) != 0;
+
+            // Get item text
+            wchar_t text[256] = {};
+            SendMessageW(dis->hwndItem, LB_GETTEXT, dis->itemID, reinterpret_cast<LPARAM>(text));
+
+            // Background
+            bool selected = (dis->itemState & ODS_SELECTED) != 0;
+            COLORREF bgColor = selected ? RGB(0x3A, 0x5A, 0x8A) : RGB(0x2D, 0x2D, 0x2D);
+            if (isHeader)
+                bgColor = RGB(0x2D, 0x2D, 0x2D); // headers don't highlight
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+
+            // Text color varies by item type
+            COLORREF textColor;
+            if (isHeader)
+                textColor = RGB(0x99, 0x99, 0x99); // dim for part headers
+            else if (selected)
+                textColor = RGB(0xFF, 0xFF, 0xFF);
+            else
+                textColor = RGB(0xCC, 0xCC, 0xCC);
+            SetTextColor(dis->hDC, textColor);
+
+            // Draw tree connectors for indented items
+            int xOffset = dis->rcItem.left + MulDiv(4, dpi, 96) + indent * indentPx;
+
+            if (indent > 0 && !isHeader)
+            {
+                // Draw connector line: ├ or └
+                int connX = dis->rcItem.left + MulDiv(4, dpi, 96) + (indent - 1) * indentPx + indentPx / 2;
+                int midY = (dis->rcItem.top + dis->rcItem.bottom) / 2;
+
+                HPEN pen = CreatePen(PS_SOLID, 1, RGB(0x66, 0x66, 0x66));
+                HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, pen));
+
+                // Check if this is the last child at this indent level
+                bool isLast = true;
+                int nextIdx = static_cast<int>(dis->itemID) + 1;
+                int count = static_cast<int>(SendMessageW(dis->hwndItem, LB_GETCOUNT, 0, 0));
+                if (nextIdx < count)
+                {
+                    LRESULT nextData = SendMessageW(dis->hwndItem, LB_GETITEMDATA, nextIdx, 0);
+                    int nextIndent = static_cast<int>(nextData & 0x7FFFFFFF);
+                    if (nextIndent >= indent)
+                        isLast = false;
+                }
+
+                // Vertical line
+                MoveToEx(dis->hDC, connX, dis->rcItem.top, nullptr);
+                LineTo(dis->hDC, connX, isLast ? midY : dis->rcItem.bottom);
+                // Horizontal stub
+                MoveToEx(dis->hDC, connX, midY, nullptr);
+                LineTo(dis->hDC, connX + MulDiv(6, dpi, 96), midY);
+
+                SelectObject(dis->hDC, oldPen);
+                DeleteObject(pen);
+            }
+
+            // Draw text
+            RECT textRect = dis->rcItem;
+            textRect.left = xOffset;
+            HFONT font = reinterpret_cast<HFONT>(SendMessageW(dis->hwndItem, WM_GETFONT, 0, 0));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            DrawTextW(dis->hDC, text, -1, &textRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+            SelectObject(dis->hDC, oldFont);
+
+            // Focus rect
+            if (dis->itemState & ODS_FOCUS)
+                DrawFocusRect(dis->hDC, &dis->rcItem);
+        }
+        return TRUE;
     }
 
     case WM_ERASEBKGND:
