@@ -28,7 +28,7 @@ jobs:
 
       - name: Build
         shell: cmd
-        run: bazelisk build -c opt //:EXRay
+        run: bazelisk build -c opt //:EXRay //:EXRayThumb.dll
 
       - name: Package portable zip
         shell: pwsh
@@ -52,6 +52,7 @@ jobs:
           $version = $tag -replace '^v', ''
           # Stage binary for Inno Setup (it can't follow Bazel symlinks)
           Copy-Item bazel-bin/EXRay.exe installer/
+          Copy-Item bazel-bin/EXRayThumb.dll installer/
           # Build installer, overriding version from tag
           & "${env:ProgramFiles(x86)}\Inno Setup 6\iscc.exe" /DMyAppVersion="$version" installer\EXRay.iss
           $setupName = "EXRay-$version-setup.exe"
