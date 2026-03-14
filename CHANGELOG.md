@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.3.1 - 2026-03-14
+
+- Fix Help menu text rendering as black-on-dark in dark mode when update is available
+
 ## 0.3.0 - 2026-03-14
 
 - Sidebar with layer hierarchy and channel controls

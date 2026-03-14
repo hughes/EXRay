@@ -1,6 +1,6 @@
 module(
     name = "exray",
-    version = "0.3.0",
+    version = "0.3.1",
 )
 
 bazel_dep(name = "rules_cc", version = "0.2.17")
