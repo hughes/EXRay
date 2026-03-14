@@ -69,18 +69,17 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     // Use a default font until SetFont is called
     HFONT font = static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
 
-    // Channel selector combo box
-    m_channelCombo =
-        CreateWindowExW(0, WC_COMBOBOXW, nullptr, WS_CHILD | WS_VISIBLE | CBS_DROPDOWNLIST | WS_TABSTOP, 0, 0, 0, 0,
-                        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelComboId)), hInstance, nullptr);
-    SendMessageW(m_channelCombo, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
-    Theme::ApplyToComboBox(m_channelCombo);
-    SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Luminance"));
-    SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Red"));
-    SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Green"));
-    SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Blue"));
-    SendMessageW(m_channelCombo, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All Channels"));
-    SendMessageW(m_channelCombo, CB_SETCURSEL, 4, 0); // Default: All
+    // Channel selector buttons (L, R, G, B, All)
+    {
+        const wchar_t* labels[] = {L"L", L"R", L"G", L"B", L"All"};
+        for (int i = 0; i < 5; i++)
+        {
+            m_channelButtons[i] = CreateWindowExW(
+                0, WC_BUTTONW, labels[i], WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0,
+                m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelBtnBaseId + i)),
+                hInstance, nullptr);
+        }
+    }
 
     // Exposure trackbar
     m_exposureTrack =
@@ -125,8 +124,8 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
 void Sidebar::SetFont(HFONT font)
 {
     m_font = font;
-    if (m_channelCombo)
-        SendMessageW(m_channelCombo, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    for (auto btn : m_channelButtons)
+        if (btn) SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_autoExpButton)
         SendMessageW(m_autoExpButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_layerList)
@@ -136,7 +135,6 @@ void Sidebar::SetFont(HFONT font)
 
 void Sidebar::RefreshTheme()
 {
-    Theme::ApplyToComboBox(m_channelCombo);
     Theme::ApplyToControl(m_exposureTrack);
     Theme::ApplyToControl(m_gammaTrack);
     Theme::ApplyToControl(m_layerList);
@@ -163,7 +161,8 @@ void Sidebar::SetEnabled(bool enabled)
     EnableWindow(m_exposureTrack, enabled);
     EnableWindow(m_gammaTrack, enabled);
     EnableWindow(m_autoExpButton, enabled);
-    EnableWindow(m_channelCombo, enabled);
+    for (auto btn : m_channelButtons)
+        EnableWindow(btn, enabled);
     EnableWindow(m_layerList, enabled);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
@@ -172,7 +171,6 @@ void Sidebar::SetHistogramData(const HistogramData& data, int channelMode)
 {
     m_histogram = data;
     m_channelMode = channelMode;
-    SendMessageW(m_channelCombo, CB_SETCURSEL, channelMode, 0);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -323,8 +321,7 @@ void Sidebar::LayoutControls()
     int trackH = MulDiv(24, dpi, 96);
     int buttonW = MulDiv(44, dpi, 96);
     int buttonH = MulDiv(22, dpi, 96);
-    int comboH = MulDiv(200, dpi, 96); // drop-down height
-    int comboVisH = MulDiv(22, dpi, 96);
+    int channelBtnH = MulDiv(22, dpi, 96);
     int histH = MulDiv(kHistogramHeight, dpi, 96);
 
     int y = m;
@@ -335,12 +332,23 @@ void Sidebar::LayoutControls()
     // histogram rect
     y += histH + MulDiv(4, dpi, 96);
 
-    int nChildren = 5;
+    int nChildren = 9; // 5 channel buttons + exposure track + auto button + gamma track + layer list
     HDWP hdwp = BeginDeferWindowPos(nChildren);
 
-    // Channel combo
-    hdwp = DeferWindowPos(hdwp, m_channelCombo, nullptr, m, y, w - 2 * m, comboH, SWP_NOZORDER | SWP_NOACTIVATE);
-    y += comboVisH + m;
+    // Channel buttons — adjacent, forming a single button group
+    {
+        int totalW = w - 2 * m;
+        int btnW = totalW / 5;
+        int x = m;
+        for (int i = 0; i < 5; i++)
+        {
+            int bw = (i == 4) ? (m + totalW - x) : btnW; // last button absorbs rounding
+            hdwp = DeferWindowPos(hdwp, m_channelButtons[i], nullptr, x, y, bw, channelBtnH,
+                                  SWP_NOZORDER | SWP_NOACTIVATE);
+            x += bw;
+        }
+    }
+    y += channelBtnH + m;
 
     // Exposure label is drawn in OnPaint
     y += labelH + MulDiv(2, dpi, 96);
@@ -626,7 +634,7 @@ void Sidebar::OnPaint()
     }
 
     y = histRect.bottom + MulDiv(4, dpi, 96);
-    // Skip channel combo area
+    // Skip channel buttons area
     y += MulDiv(22, dpi, 96) + m;
 
     // --- Exposure section ---
@@ -735,11 +743,18 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             if (self->onAutoExposure)
                 self->onAutoExposure();
         }
-        else if (id == kChannelComboId && code == CBN_SELCHANGE)
+        else if (id >= kChannelBtnBaseId && id < kChannelBtnBaseId + 5 && code == BN_CLICKED)
         {
-            int sel = static_cast<int>(SendMessageW(self->m_channelCombo, CB_GETCURSEL, 0, 0));
-            if (sel >= 0 && self->onHistogramChannel)
-                self->onHistogramChannel(sel);
+            int channel = id - kChannelBtnBaseId;
+            if (channel != self->m_channelMode)
+            {
+                self->m_channelMode = channel;
+                // Repaint all channel buttons to update active state
+                for (auto btn : self->m_channelButtons)
+                    InvalidateRect(btn, nullptr, FALSE);
+                if (self->onHistogramChannel)
+                    self->onHistogramChannel(channel);
+            }
         }
         else if (id == kLayerListId && code == LBN_SELCHANGE)
         {
@@ -785,6 +800,86 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_DRAWITEM:
     {
         auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
+
+        // Owner-drawn channel buttons
+        if (dis->CtlID >= static_cast<UINT>(kChannelBtnBaseId) &&
+            dis->CtlID < static_cast<UINT>(kChannelBtnBaseId + 5))
+        {
+            int channel = static_cast<int>(dis->CtlID) - kChannelBtnBaseId;
+            bool active = (channel == self->m_channelMode);
+            bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+            bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+
+            // Channel accent colors
+            static const COLORREF kChannelAccent[] = {
+                RGB(200, 200, 200), // Luminance — neutral
+                RGB(220,  60,  60), // Red
+                RGB( 60, 200,  60), // Green
+                RGB( 60, 100, 220), // Blue
+                RGB(200, 200, 200), // All — neutral
+            };
+
+            COLORREF bgColor;
+            if (pressed)
+                bgColor = Colors::ButtonPressed;
+            else if (active)
+                bgColor = Colors::Surface;
+            else
+                bgColor = Colors::Background;
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            // Segmented control border — shared edges, no double lines
+            COLORREF borderColor = Colors::ButtonBorder;
+            HPEN borderPen = CreatePen(PS_SOLID, 1, borderColor);
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, borderPen));
+            int L = dis->rcItem.left, T = dis->rcItem.top;
+            int R = dis->rcItem.right - 1, B = dis->rcItem.bottom - 1;
+            // Top edge
+            MoveToEx(dis->hDC, L, T, nullptr); LineTo(dis->hDC, R + 1, T);
+            // Bottom edge
+            MoveToEx(dis->hDC, L, B, nullptr); LineTo(dis->hDC, R + 1, B);
+            // Left edge only on first button
+            if (channel == 0) { MoveToEx(dis->hDC, L, T, nullptr); LineTo(dis->hDC, L, B + 1); }
+            // Right edge (doubles as separator for next button)
+            MoveToEx(dis->hDC, R, T, nullptr); LineTo(dis->hDC, R, B + 1);
+            SelectObject(dis->hDC, oldPen);
+            DeleteObject(borderPen);
+
+            // Active indicator — thin colored bar at bottom
+            if (active && !disabled)
+            {
+                RECT indicator = dis->rcItem;
+                indicator.top = indicator.bottom - 2;
+                indicator.left += 1;  // inset within border
+                indicator.right -= 1;
+                HBRUSH accentBrush = CreateSolidBrush(kChannelAccent[channel]);
+                FillRect(dis->hDC, &indicator, accentBrush);
+                DeleteObject(accentBrush);
+            }
+
+            // Text
+            SetBkMode(dis->hDC, TRANSPARENT);
+            COLORREF textColor;
+            if (disabled)
+                textColor = Colors::TextDim;
+            else if (active && channel >= 1 && channel <= 3)
+                textColor = kChannelAccent[channel]; // colored text for active R/G/B
+            else
+                textColor = Colors::TextPrimary;
+            SetTextColor(dis->hDC, textColor);
+
+            HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            // Get button text
+            wchar_t label[8] = {};
+            GetWindowTextW(dis->hwndItem, label, 8);
+            DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dis->hDC, oldFont);
+
+            return TRUE;
+        }
 
         // Owner-drawn Auto button
         if (dis->CtlID == static_cast<UINT>(kAutoExpButtonId))

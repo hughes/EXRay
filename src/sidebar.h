@@ -64,8 +64,8 @@ class Sidebar
     HWND m_gammaTrack = nullptr;
     HWND m_autoExpButton = nullptr;
 
-    // Histogram channel buttons
-    HWND m_channelCombo = nullptr;
+    // Histogram channel buttons (L, R, G, B, All)
+    HWND m_channelButtons[5] = {};
 
     // Layer browser
     HWND m_layerList = nullptr;
@@ -95,6 +95,6 @@ class Sidebar
     static constexpr int kExposureTrackId = 2001;
     static constexpr int kGammaTrackId = 2002;
     static constexpr int kAutoExpButtonId = 2003;
-    static constexpr int kChannelComboId = 2004;
-    static constexpr int kLayerListId = 2005;
+    static constexpr int kChannelBtnBaseId = 2004; // 2004..2008 for 5 buttons
+    static constexpr int kLayerListId = 2010;
 };
