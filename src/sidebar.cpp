@@ -132,6 +132,15 @@ void Sidebar::SetVisible(bool visible)
     ShowWindow(m_hwnd, visible ? SW_SHOW : SW_HIDE);
 }
 
+void Sidebar::SetEnabled(bool enabled)
+{
+    EnableWindow(m_exposureTrack, enabled);
+    EnableWindow(m_gammaTrack, enabled);
+    EnableWindow(m_autoExpButton, enabled);
+    EnableWindow(m_channelCombo, enabled);
+    EnableWindow(m_layerList, enabled);
+}
+
 void Sidebar::SetHistogramData(const HistogramData& data, int channelMode)
 {
     m_histogram = data;

@@ -28,6 +28,9 @@ class Sidebar
     HWND GetHwnd() const { return m_hwnd; }
     int GetWidth() const;
 
+    // Enable/disable all interactive controls (for when no image is loaded)
+    void SetEnabled(bool enabled);
+
     // Update display data (does not take ownership — copies what it needs)
     void SetHistogramData(const HistogramData& data, int channelMode);
     void SetExposureGamma(float exposure, float gamma, bool isHDR);

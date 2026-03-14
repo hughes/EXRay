@@ -886,6 +886,7 @@ void App::CloseCurrentTab()
         m_histogram = HistogramData{};
         m_layerInfo = ExrFileInfo{};
         m_activeLayer = 0;
+        m_viewport.exposure = 0.0f;
         m_window.SetTitle(L"EXRay");
         m_window.SetStatusText(0, L"");
         m_window.SetStatusText(1, L"");
@@ -1017,6 +1018,7 @@ void App::UpdateImageStatusText()
 void App::SyncSidebar()
 {
     Sidebar& sb = m_window.GetSidebar();
+    sb.SetEnabled(m_renderer.HasImage());
     sb.SetHistogramData(m_histogram, m_histogramChannel);
     sb.SetExposureGamma(m_viewport.exposure, m_viewport.gamma, m_viewport.isHDR);
     sb.SetLayers(m_layerInfo, m_activeLayer);
