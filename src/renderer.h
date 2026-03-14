@@ -35,7 +35,10 @@ struct ViewportCB
     float displayMaxNits;
     int showGrid;    // 0=off, 1=on
     int displayMode; // 0=normal, 1=R, 2=G, 3=B, 4=A
-}; // 96 bytes
+    // 3x3 color matrix packed as 3x float4 (HLSL cbuffer alignment)
+    // Converts source primaries → Rec. 709
+    float colorMatrix[12]; // rows: [m00 m01 m02 pad] [m10 m11 m12 pad] [m20 m21 m22 pad]
+}; // 144 bytes
 
 class Renderer
 {

@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -13,13 +14,20 @@ struct ImageData
     bool alphaAllZero = false; // true if every alpha sample was exactly 0
     std::vector<float> pixels; // RGBA interleaved, width*height*4 floats
 
+    // 3x3 row-major color matrix: source primaries → Rec. 709
+    // Identity by default (no conversion needed for Rec. 709 sources)
+    float colorMatrix[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+    std::string colorSpace; // empty = Rec. 709 (default), otherwise e.g. "ACEScg", "DCI-P3"
+
     ImageData() = default;
     ImageData(const ImageData&) = default;
     ImageData& operator=(const ImageData&) = default;
 
     ImageData(ImageData&& o) noexcept
-        : width(o.width), height(o.height), alphaAllZero(o.alphaAllZero), pixels(std::move(o.pixels))
+        : width(o.width), height(o.height), alphaAllZero(o.alphaAllZero), pixels(std::move(o.pixels)),
+          colorSpace(std::move(o.colorSpace))
     {
+        std::memcpy(colorMatrix, o.colorMatrix, sizeof(colorMatrix));
         o.width = 0;
         o.height = 0;
         o.alphaAllZero = false;
@@ -33,6 +41,8 @@ struct ImageData
             height = o.height;
             alphaAllZero = o.alphaAllZero;
             pixels = std::move(o.pixels);
+            std::memcpy(colorMatrix, o.colorMatrix, sizeof(colorMatrix));
+            colorSpace = std::move(o.colorSpace);
             o.width = 0;
             o.height = 0;
             o.alphaAllZero = false;

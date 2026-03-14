@@ -32,6 +32,7 @@ CATEGORIES=(
     [scanline]="Basic scanline images (various compressions)"
     [tiled]="Tiled images"
     [lumachroma]="Luminance/chroma images"
+    [chromaticities]="Chromaticity / color space conversion"
     [edge]="Edge cases: NaN, Inf, wide gamut, extreme range"
     [displaywindow]="Display/data window offset and cropping"
     [multipart]="Multi-part files (expect graceful failure)"
@@ -64,6 +65,10 @@ lumachroma_files=(
     "LuminanceChroma/Garden.exr"
     "LuminanceChroma/CrissyField.exr"
     "LuminanceChroma/StarField.exr"
+)
+
+chromaticities_files=(
+    "Chromaticities/Rec709_YC.exr"
 )
 
 edge_files=(
@@ -130,7 +135,7 @@ damaged_files=(
     "Damaged/asan_heap-oob_4cb169_978_5f00ce89c3847e739b256efc49f312cf_exr"
 )
 
-ALL_CATEGORIES=(scanline tiled multiresolution lumachroma edge displaywindow multipart multiview deep damaged)
+ALL_CATEGORIES=(scanline tiled multiresolution lumachroma chromaticities edge displaywindow multipart multiview deep damaged)
 
 # ---------------------------------------------------------------------------
 # Helpers
