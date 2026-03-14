@@ -6,6 +6,7 @@
 
 #include "app.h"
 
+#include "display_mode.h"
 #include "resource.h"
 
 #include <algorithm>
@@ -155,9 +156,9 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             SavePreferences();
             SyncSidebar();
         }
-        else if ((GetKeyState(VK_SHIFT) & 0x8000) && (vk == VK_OEM_3 || (vk >= '1' && vk <= '4')))
+        else if ((GetKeyState(VK_SHIFT) & 0x8000) && (vk == VK_OEM_3 || (vk >= '1' && vk <= '5')))
         {
-            m_displayMode = (vk == VK_OEM_3) ? 0 : (vk - '0');
+            m_displayMode = (vk == VK_OEM_3) ? 0 : (vk == '5') ? 5 : (vk - '0');
             m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
             m_needsRedraw = true;
         }
@@ -332,6 +333,10 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_image = std::move(m_pendingImage);
             m_renderer.UploadImage(m_image);
             m_histogram = HistogramComputer::Compute(m_image);
+
+            // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+            m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
+            m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
             m_timing->textureUploaded = StartupTiming::Now();
 
@@ -558,7 +563,8 @@ void App::OnCommand(int commandId)
     case IDM_VIEW_CHANNEL_G:
     case IDM_VIEW_CHANNEL_B:
     case IDM_VIEW_CHANNEL_A:
-        m_displayMode = commandId - IDM_VIEW_CHANNEL_RGB;
+    case IDM_VIEW_CHANNEL_RGB_NO_ALPHA:
+        m_displayMode = (commandId == IDM_VIEW_CHANNEL_RGB_NO_ALPHA) ? 5 : (commandId - IDM_VIEW_CHANNEL_RGB);
         m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
         m_needsRedraw = true;
         break;
@@ -714,6 +720,10 @@ bool App::LoadFile(const std::wstring& path)
         ImageLoader::ScanLayers(path, m_layerInfo, layerError);
         m_activeLayer = 0;
 
+        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+        m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
         m_viewport.exposure = m_histogram.autoExposure;
@@ -765,6 +775,10 @@ bool App::LoadLayer(int layerIndex)
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramComputer::Compute(m_image);
         m_activeLayer = layerIndex;
+
+        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+        m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);

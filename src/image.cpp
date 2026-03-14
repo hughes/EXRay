@@ -83,6 +83,12 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
             }
         }
 
+        // Detect all-zero alpha
+        bool allZero = true;
+        for (size_t i = 3; i < outImage.pixels.size() && allZero; i += 4)
+            allZero = (outImage.pixels[i] == 0.0f);
+        outImage.alphaAllZero = allZero;
+
         return true;
     }
     catch (const std::bad_alloc&)
@@ -386,6 +392,12 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
                 outImage.pixels[i + 2] = outImage.pixels[i + 0];
             }
         }
+
+        // Detect all-zero alpha
+        bool allZero = true;
+        for (size_t i = 3; i < outImage.pixels.size() && allZero; i += 4)
+            allZero = (outImage.pixels[i] == 0.0f);
+        outImage.alphaAllZero = allZero;
 
         return true;
     }

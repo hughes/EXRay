@@ -6,6 +6,7 @@
 #define UNICODE
 #endif
 
+#include "display_mode.h"
 #include "histogram.h"
 #include "image.h"
 #include "renderer.h"
@@ -75,8 +76,8 @@ class App
     // Grid state
     bool m_showGrid = true;
 
-    // Display mode: 0=RGB, 1=R, 2=G, 3=B, 4=A (solo channel)
-    int m_displayMode = 0;
+    // Display mode: 0=RGB, 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)
+    int m_displayMode = kDisplayModeRGB;
 
     // Open file tabs
     struct OpenTab
