@@ -61,18 +61,24 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     // Wire up input callbacks
     m_window.onMouseWheel = [this](int x, int y, int delta, bool ctrl, bool shift)
     {
-        if (ctrl)
-            m_viewport.ZoomAt(static_cast<float>(x), static_cast<float>(y), static_cast<float>(delta));
-        else if (shift)
-            m_viewport.Pan(static_cast<float>(delta) * 0.8f, 0.0f);  // Shift+scroll → pan X
+        if (shift)
+        {
+            m_viewport.AdjustExposure(delta > 0 ? 0.25f : -0.25f);
+            SyncSidebar();
+            UpdateImageStatusText();
+        }
         else
-            m_viewport.Pan(0.0f, static_cast<float>(delta) * 0.8f);   // scroll → pan Y
+        {
+            m_viewport.ZoomAt(static_cast<float>(x), static_cast<float>(y), static_cast<float>(delta));
+        }
         m_needsRedraw = true;
     };
 
     m_window.onMouseHWheel = [this](int /*x*/, int /*y*/, int delta)
     {
-        m_viewport.Pan(static_cast<float>(-delta) * 0.8f, 0.0f); // H-scroll → pan X
+        m_viewport.AdjustExposure(delta > 0 ? 0.25f : -0.25f);
+        SyncSidebar();
+        UpdateImageStatusText();
         m_needsRedraw = true;
     };
 
@@ -125,43 +131,41 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (vk == VK_OEM_PLUS || vk == VK_ADD)
         {
             m_viewport.AdjustExposure(0.25f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
         else if (vk == VK_OEM_MINUS || vk == VK_SUBTRACT)
         {
             m_viewport.AdjustExposure(-0.25f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
         else if ((vk == VK_OEM_6 || vk == VK_OEM_4) && !m_viewport.isHDR) // [/] — gamma (SDR only)
         {
             m_viewport.AdjustGamma(vk == VK_OEM_6 ? 0.05f : -0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
-            m_needsRedraw = true;
-        }
-        else if (vk == 'H')
-        {
-            m_showHistogram = !m_showHistogram;
-            SavePreferences();
-            m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
             m_needsRedraw = true;
         }
         else if (vk == 'C')
         {
-            if (m_showHistogram)
-            {
-                m_histogramChannel = (m_histogramChannel + 1) % 5;
-                SavePreferences();
-                m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
-                m_needsRedraw = true;
-            }
+            m_histogramChannel = (m_histogramChannel + 1) % 5;
+            SavePreferences();
+            SyncSidebar();
+        }
+        else if ((GetKeyState(VK_SHIFT) & 0x8000) && (vk == VK_OEM_3 || (vk >= '1' && vk <= '4')))
+        {
+            m_displayMode = (vk == VK_OEM_3) ? 0 : (vk - '0');
+            m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+            m_needsRedraw = true;
         }
         else if (vk == 'G')
         {
             m_showGrid = !m_showGrid;
             SavePreferences();
-            m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+            m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
             m_needsRedraw = true;
         }
         else if (vk == VK_F11)
@@ -195,10 +199,46 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.displayMaxNits = m_renderer.GetHDRInfo().maxLuminance;
         }
         m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
     };
     m_window.onTabChange = [this](int index) { SwitchToTab(index); };
+    m_window.onTabClose = [this](int index) { CloseTabAtIndex(index); };
+
+    // Sidebar callbacks
+    Sidebar& sidebar = m_window.GetSidebar();
+    sidebar.onExposureChange = [this](float ev)
+    {
+        m_viewport.exposure = ev;
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+    };
+    sidebar.onGammaChange = [this](float g)
+    {
+        m_viewport.gamma = g;
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+    };
+    sidebar.onAutoExposure = [this]()
+    {
+        if (m_histogram.isValid)
+        {
+            m_viewport.exposure = m_histogram.autoExposure;
+            SyncSidebar();
+            UpdateImageStatusText();
+            m_needsRedraw = true;
+        }
+    };
+    sidebar.onHistogramChannel = [this](int channel)
+    {
+        m_histogramChannel = channel;
+        SavePreferences();
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+        SyncSidebar();
+        m_needsRedraw = true;
+    };
+    sidebar.onLayerSelect = [this](int layerIndex) { LoadLayer(layerIndex); };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
     {
@@ -224,8 +264,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", px[0], px[1], px[2], px[3]);
         AppendMenuW(popup, MF_STRING, 1, label);
 
-        int cmd = TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenX, screenY, 0, m_window.GetHwnd(),
-                                 nullptr);
+        int cmd =
+            TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenX, screenY, 0, m_window.GetHwnd(), nullptr);
         DestroyMenu(popup);
 
         if (cmd == 1)
@@ -265,9 +305,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         LoadRecentFiles();
         LoadPreferences();
     }
-    m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
-
-    // Propagate HDR state to viewport
+    // Propagate HDR state to viewport (before SyncSidebar so gamma slider visibility is correct)
     if (m_renderer.IsHDREnabled())
     {
         m_viewport.isHDR = true;
@@ -275,6 +313,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_viewport.displayMaxNits = hdrInfo.maxLuminance;
     }
     m_window.UpdateHDRMenu(m_renderer.GetHDRInfo().isHDRCapable, m_renderer.IsHDREnabled());
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+    SyncSidebar();
 
     // Set initial client size in viewport
     int cw, ch;
@@ -292,7 +332,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_image = std::move(m_pendingImage);
             m_renderer.UploadImage(m_image);
             m_histogram = HistogramComputer::Compute(m_image);
-            m_renderer.UploadHistogram(m_histogram);
+
             m_timing->textureUploaded = StartupTiming::Now();
 
             m_viewport.imageWidth = static_cast<float>(m_image.width);
@@ -300,24 +340,32 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_viewport.exposure = m_histogram.autoExposure;
             m_viewport.FitToWindow();
 
-            m_openTabs.push_back({cmdLinePath, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma});
+            // Scan layers for initial file
+            std::string layerError;
+            ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
+            m_activeLayer = 0;
+
+            m_openTabs.push_back({cmdLinePath,
+                                  m_viewport.exposure,
+                                  m_viewport.zoom,
+                                  m_viewport.panX,
+                                  m_viewport.panY,
+                                  m_viewport.gamma,
+                                  {},
+                                  {},
+                                  m_layerInfo,
+                                  m_activeLayer});
             m_activeTab = 0;
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
 
-            // Re-read client size after AddTab — the tab bar is now visible,
-            // which shrinks the render area.  Also resize the swap chain to
-            // match, otherwise the first user resize causes a one-time pop.
-            m_window.GetClientSize(cw, ch);
-            m_viewport.clientWidth = static_cast<float>(cw);
-            m_viewport.clientHeight = static_cast<float>(ch);
-            m_renderer.Resize(cw, ch);
             m_viewport.FitToWindow();
 
             wchar_t title[MAX_PATH + 16];
             swprintf_s(title, L"EXRay - %s", cmdLinePath.c_str());
             m_window.SetTitle(title);
 
+            SyncSidebar();
             UpdateImageStatusText();
             AddToRecentFiles(cmdLinePath);
         }
@@ -346,8 +394,7 @@ void App::StartUpdateCheck()
     m_updateThread = std::thread(
         [this, hwnd]()
         {
-            m_updateResult =
-                UpdateChecker::Check(EXRAY_VERSION_MAJOR, EXRAY_VERSION_MINOR, EXRAY_VERSION_PATCH);
+            m_updateResult = UpdateChecker::Check(EXRAY_VERSION_MAJOR, EXRAY_VERSION_MINOR, EXRAY_VERSION_PATCH);
             m_updateCheckComplete = true;
             PostMessageW(hwnd, WM_APP + 1, 0, 0);
         });
@@ -433,12 +480,8 @@ void App::Render()
     {
         ViewportCB vp = m_viewport.ToViewportCB();
         vp.showGrid = m_showGrid ? 1 : 0;
+        vp.displayMode = m_displayMode;
         m_renderer.RenderImage(vp);
-
-        if (m_showHistogram && m_histogram.isValid)
-        {
-            m_renderer.RenderHistogram(BuildHistogramCB());
-        }
     }
 
     m_renderer.EndFrame();
@@ -503,28 +546,20 @@ void App::OnCommand(int commandId)
         m_needsRedraw = true;
         break;
 
-    case IDM_VIEW_HISTOGRAM:
-        m_showHistogram = !m_showHistogram;
-        SavePreferences();
-        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
-        m_needsRedraw = true;
-        break;
-
     case IDM_VIEW_GRID:
         m_showGrid = !m_showGrid;
         SavePreferences();
-        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
         m_needsRedraw = true;
         break;
 
-    case IDM_VIEW_CHAN_LUM:
-    case IDM_VIEW_CHAN_RED:
-    case IDM_VIEW_CHAN_GREEN:
-    case IDM_VIEW_CHAN_BLUE:
-    case IDM_VIEW_CHAN_ALL:
-        m_histogramChannel = commandId - IDM_VIEW_CHAN_LUM;
-        SavePreferences();
-        m_window.UpdateMenuChecks(m_showHistogram, m_histogramChannel, m_showGrid);
+    case IDM_VIEW_CHANNEL_RGB:
+    case IDM_VIEW_CHANNEL_R:
+    case IDM_VIEW_CHANNEL_G:
+    case IDM_VIEW_CHANNEL_B:
+    case IDM_VIEW_CHANNEL_A:
+        m_displayMode = commandId - IDM_VIEW_CHANNEL_RGB;
+        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
         m_needsRedraw = true;
         break;
 
@@ -539,6 +574,7 @@ void App::OnCommand(int commandId)
             else
                 m_viewport.displayMaxNits = 80.0f;
             m_window.UpdateHDRMenu(true, newState);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -547,12 +583,14 @@ void App::OnCommand(int commandId)
 
     case IDM_VIEW_EXPOSURE_UP:
         m_viewport.AdjustExposure(0.25f);
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         break;
 
     case IDM_VIEW_EXPOSURE_DOWN:
         m_viewport.AdjustExposure(-0.25f);
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         break;
@@ -561,6 +599,7 @@ void App::OnCommand(int commandId)
         if (!m_viewport.isHDR)
         {
             m_viewport.AdjustGamma(0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -570,6 +609,7 @@ void App::OnCommand(int commandId)
         if (!m_viewport.isHDR)
         {
             m_viewport.AdjustGamma(-0.05f);
+            SyncSidebar();
             UpdateImageStatusText();
             m_needsRedraw = true;
         }
@@ -584,8 +624,7 @@ void App::OnCommand(int commandId)
         HICON bigIcon = static_cast<HICON>(
             LoadImageW(m_hInstance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR));
 
-        std::wstring content = L"Version " EXRAY_VERSION_WSTR L"\n"
-                               EXRAY_COPYRIGHT_W L"\n\n"
+        std::wstring content = L"Version " EXRAY_VERSION_WSTR L"\n" EXRAY_COPYRIGHT_W L"\n\n"
                                L"<a href=\"https://github.com/hughes/EXRay\">github.com/hughes/EXRay</a>\n"
                                L"Open-source. Free of ads, forever.";
 
@@ -651,9 +690,8 @@ void App::OnResize(int width, int height)
         {
             ViewportCB vp = m_viewport.ToViewportCB();
             vp.showGrid = m_showGrid ? 1 : 0;
+            vp.displayMode = m_displayMode;
             m_renderer.RenderImage(vp);
-            if (m_showHistogram && m_histogram.isValid)
-                m_renderer.RenderHistogram(BuildHistogramCB());
         }
         m_renderer.EndFrame(false);
         m_needsRedraw = false;
@@ -670,7 +708,11 @@ bool App::LoadFile(const std::wstring& path)
         m_image = std::move(newImage);
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramComputer::Compute(m_image);
-        m_renderer.UploadHistogram(m_histogram);
+
+        // Scan layers (metadata only)
+        std::string layerError;
+        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
+        m_activeLayer = 0;
 
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
@@ -681,6 +723,7 @@ bool App::LoadFile(const std::wstring& path)
         swprintf_s(title, L"EXRay - %s", path.c_str());
         m_window.SetTitle(title);
 
+        SyncSidebar();
         UpdateImageStatusText();
         m_needsRedraw = true;
         return true;
@@ -696,6 +739,52 @@ bool App::LoadFile(const std::wstring& path)
         }
         return false;
     }
+}
+
+bool App::LoadLayer(int layerIndex)
+{
+    if (m_activeTab < 0 || layerIndex < 0 || layerIndex >= static_cast<int>(m_layerInfo.layers.size()))
+        return false;
+
+    std::string errorMsg;
+    ImageData newImage;
+    const std::wstring& path = m_openTabs[m_activeTab].path;
+
+    if (ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], newImage, errorMsg))
+    {
+        // When switching between mip levels of the same layer, scale zoom
+        // so the image occupies the same screen space
+        const auto& oldLayer = m_layerInfo.layers[m_activeLayer];
+        const auto& newLayer = m_layerInfo.layers[layerIndex];
+        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
+                           oldLayer.partIndex == newLayer.partIndex;
+
+        float oldWidth = m_viewport.imageWidth;
+
+        m_image = std::move(newImage);
+        m_renderer.UploadImage(m_image);
+        m_histogram = HistogramComputer::Compute(m_image);
+        m_activeLayer = layerIndex;
+
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+
+        if (isMipSwitch && oldWidth > 0.0f)
+            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
+
+        SyncSidebar();
+        UpdateImageStatusText();
+        m_needsRedraw = true;
+        return true;
+    }
+    else if (!m_smokeTest)
+    {
+        int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
+        std::wstring wideError(len, L'\0');
+        MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
+        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+    }
+    return false;
 }
 
 void App::OpenFile(const std::wstring& path)
@@ -719,25 +808,21 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
-    bool wasEmpty = m_openTabs.empty();
-    m_openTabs.push_back({path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}});
+    m_openTabs.push_back({path,
+                          m_viewport.exposure,
+                          m_viewport.zoom,
+                          m_viewport.panX,
+                          m_viewport.panY,
+                          m_viewport.gamma,
+                          {},
+                          {},
+                          m_layerInfo,
+                          m_activeLayer});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
     AddToRecentFiles(path);
-
-    // First tab appearing changes the render area height — re-fit and
-    // resize the swap chain to match.
-    if (wasEmpty)
-    {
-        int cw, ch;
-        m_window.GetClientSize(cw, ch);
-        m_viewport.clientWidth = static_cast<float>(cw);
-        m_viewport.clientHeight = static_cast<float>(ch);
-        m_renderer.Resize(cw, ch);
-        m_viewport.FitToWindow();
-    }
     EvictDistantTabs();
     StartPreload();
 }
@@ -762,8 +847,10 @@ void App::SwitchToTab(int index)
         // Cache hit — use cached data
         m_image = std::move(m_openTabs[index].image);
         m_histogram = std::move(m_openTabs[index].histogram);
+        m_layerInfo = m_openTabs[index].layerInfo;
+        m_activeLayer = m_openTabs[index].activeLayer;
         m_renderer.UploadImage(m_image);
-        m_renderer.UploadHistogram(m_histogram);
+
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
         m_viewport.exposure = m_openTabs[index].exposure;
@@ -789,6 +876,7 @@ void App::SwitchToTab(int index)
 
     EvictDistantTabs();
     StartPreload();
+    SyncSidebar();
     UpdateImageStatusText();
     m_needsRedraw = true;
 }
@@ -814,10 +902,14 @@ void App::CloseCurrentTab()
         m_image = ImageData{};
         m_renderer.UploadImage(m_image);
         m_histogram = HistogramData{};
+        m_layerInfo = ExrFileInfo{};
+        m_activeLayer = 0;
+        m_viewport.exposure = 0.0f;
         m_window.SetTitle(L"EXRay");
         m_window.SetStatusText(0, L"");
         m_window.SetStatusText(1, L"");
         m_window.SetStatusText(2, L"");
+        SyncSidebar();
         m_needsRedraw = true;
     }
     else
@@ -833,6 +925,32 @@ void App::CloseCurrentTab()
     }
 }
 
+void App::CloseTabAtIndex(int index)
+{
+    if (index < 0 || index >= static_cast<int>(m_openTabs.size()))
+        return;
+
+    // If closing the active tab, reuse existing logic
+    if (index == m_activeTab)
+    {
+        CloseCurrentTab();
+        return;
+    }
+
+    // Invalidate preload — tab indices are shifting
+    m_preloadIndex = -1;
+
+    m_openTabs.erase(m_openTabs.begin() + index);
+    m_window.RemoveTab(index);
+
+    // Adjust active tab index if it was after the removed tab
+    if (m_activeTab > index)
+        m_activeTab--;
+
+    m_window.SetActiveTab(m_activeTab);
+    StartPreload();
+}
+
 void App::SaveTabState()
 {
     if (m_activeTab >= 0 && m_activeTab < static_cast<int>(m_openTabs.size()))
@@ -842,6 +960,8 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].panX = m_viewport.panX;
         m_openTabs[m_activeTab].panY = m_viewport.panY;
         m_openTabs[m_activeTab].gamma = m_viewport.gamma;
+        m_openTabs[m_activeTab].layerInfo = m_layerInfo;
+        m_openTabs[m_activeTab].activeLayer = m_activeLayer;
         if (m_image.IsLoaded())
         {
             m_openTabs[m_activeTab].image = std::move(m_image);
@@ -920,38 +1040,6 @@ void App::EvictDistantTabs()
     }
 }
 
-HistogramCB App::BuildHistogramCB() const
-{
-    HistogramCB cb = {};
-    // Fixed-size histogram panel in pixels, converted to NDC.
-    constexpr float kPanelWidthPx = 300.0f;
-    constexpr float kPanelHeightPx = 100.0f; // width and height in pixels
-    constexpr float kMarginPx = 10.0f;
-
-    float ndcW = (m_viewport.clientWidth > 0) ? (kPanelWidthPx / m_viewport.clientWidth) * 2.0f : 0.40f;
-    float ndcH = (m_viewport.clientHeight > 0) ? (kPanelHeightPx / m_viewport.clientHeight) * 2.0f : 0.30f;
-    float ndcMX = (m_viewport.clientWidth > 0) ? (kMarginPx / m_viewport.clientWidth) * 2.0f : 0.05f;
-    float ndcMY = (m_viewport.clientHeight > 0) ? (kMarginPx / m_viewport.clientHeight) * 2.0f : 0.05f;
-
-    cb.panelLeft = -1.0f + ndcMX;
-    cb.panelTop = 1.0f - ndcMY;
-    cb.panelWidth = ndcW;
-    cb.panelHeight = ndcH;
-
-    cb.channelMode = m_histogramChannel;
-    cb.log2Min = m_histogram.log2Min;
-    cb.log2Max = m_histogram.log2Max;
-    cb.binCount = HistogramData::kBinCount;
-
-    cb.tfExposure = m_viewport.exposure;
-    cb.tfGamma = m_viewport.gamma;
-    cb.tfIsHDR = m_viewport.isHDR ? 1 : 0;
-    cb.sdrWhiteNits = m_viewport.sdrWhiteNits;
-    cb.displayMaxNits = m_viewport.displayMaxNits;
-
-    return cb;
-}
-
 void App::UpdateImageStatusText()
 {
     if (!m_image.IsLoaded())
@@ -960,7 +1048,8 @@ void App::UpdateImageStatusText()
     wchar_t infoBuf[192];
     if (m_viewport.isHDR)
     {
-        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height, m_viewport.exposure, m_viewport.displayMaxNits);
+        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height,
+                   m_viewport.exposure, m_viewport.displayMaxNits);
     }
     else
     {
@@ -969,6 +1058,17 @@ void App::UpdateImageStatusText()
                    m_viewport.exposure, displayGamma);
     }
     m_window.SetStatusText(2, infoBuf);
+}
+
+void App::SyncSidebar()
+{
+    bool hasImage = m_renderer.HasImage();
+    Sidebar& sb = m_window.GetSidebar();
+    sb.SetEnabled(hasImage);
+    m_window.EnableImageMenuItems(hasImage);
+    sb.SetHistogramData(m_histogram, m_histogramChannel);
+    sb.SetExposureGamma(m_viewport.exposure, m_viewport.gamma, m_viewport.isHDR);
+    sb.SetLayers(m_layerInfo, m_activeLayer);
 }
 
 void App::OpenFileDialog()
@@ -1087,12 +1187,11 @@ void App::LoadPreferences()
     while (fgets(line, sizeof(line), f))
     {
         int val;
-        if (sscanf(line, "showHistogram=%d", &val) == 1)
-            m_showHistogram = (val != 0);
-        else if (sscanf(line, "histogramChannel=%d", &val) == 1)
+        if (sscanf(line, "histogramChannel=%d", &val) == 1)
             m_histogramChannel = (std::max)(0, (std::min)(val, 4));
         else if (sscanf(line, "showGrid=%d", &val) == 1)
             m_showGrid = (val != 0);
+        // showSidebar is no longer a preference (sidebar always visible)
     }
     fclose(f);
 }
@@ -1107,7 +1206,6 @@ void App::SavePreferences()
     if (!f)
         return;
 
-    fprintf(f, "showHistogram=%d\n", m_showHistogram ? 1 : 0);
     fprintf(f, "histogramChannel=%d\n", m_histogramChannel);
     fprintf(f, "showGrid=%d\n", m_showGrid ? 1 : 0);
     fclose(f);

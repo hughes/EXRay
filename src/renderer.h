@@ -33,23 +33,9 @@ struct ViewportCB
     int isHDR;           // 0=SDR gamma output, 1=HDR scRGB linear
     float sdrWhiteNits;  // 80.0
     float displayMaxNits;
-    int showGrid;        // 0=off, 1=on
-    float _pad;
+    int showGrid;    // 0=off, 1=on
+    int displayMode; // 0=normal, 1=R, 2=G, 3=B, 4=A
 }; // 96 bytes
-
-struct HistogramCB
-{
-    float panelLeft, panelTop, panelWidth, panelHeight; // NDC coords
-    int channelMode;                                    // 0=Lum, 1=R, 2=G, 3=B, 4=All
-    float log2Min, log2Max;
-    int binCount;                                       // number of histogram bins (e.g. 512)
-    float tfExposure, tfGamma;
-    int tfIsHDR;
-    float sdrWhiteNits, displayMaxNits;
-    float _pad1[3];
-}; // 64 bytes
-
-struct HistogramData;
 
 class Renderer
 {
@@ -63,9 +49,6 @@ class Renderer
     void RenderImage(const ViewportCB& vp);
     bool HasImage() const { return m_imageSRV != nullptr; }
 
-    void UploadHistogram(const HistogramData& histogram);
-    void RenderHistogram(const HistogramCB& cb);
-
     ID3D11Device1* GetDevice() const { return m_device.Get(); }
     bool IsHDREnabled() const { return m_hdrEnabled; }
     bool SetHDRMode(bool enable);
@@ -75,7 +58,6 @@ class Renderer
 
   private:
     bool CreateShaders();
-    bool CreateHistogramShaders();
     void CreateRenderTarget();
     void ReleaseRenderTarget();
     HDRDisplayInfo DetectHDR(HWND hwnd);
@@ -102,17 +84,6 @@ class Renderer
 
     int m_width = 0;
     int m_height = 0;
-
-    // Histogram overlay
-    ComPtr<ID3D11VertexShader> m_histogramVS;
-    ComPtr<ID3D11PixelShader> m_histogramPS;
-    ComPtr<ID3D11Buffer> m_histogramCB;
-    ComPtr<ID3D11Texture2D> m_histogramTexture;
-    ComPtr<ID3D11ShaderResourceView> m_histogramSRV;
-    // Background snapshot for histogram compositing
-    ComPtr<ID3D11Texture2D> m_histBgTexture;
-    ComPtr<ID3D11ShaderResourceView> m_histBgSRV;
-    DXGI_FORMAT m_histBgFormat = DXGI_FORMAT_UNKNOWN;
 
     // DirectComposition (used instead of HWND-based swap chain to avoid
     // DWM/driver stutter when presenting during scroll input)

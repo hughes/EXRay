@@ -23,8 +23,7 @@
 class App
 {
   public:
-    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing,
-                    bool smokeTest = false);
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest = false);
     int Run();
 
   private:
@@ -33,8 +32,10 @@ class App
     void OpenFileDialog();
     void OpenFile(const std::wstring& path);
     bool LoadFile(const std::wstring& path);
+    bool LoadLayer(int layerIndex);
     void SwitchToTab(int index);
     void CloseCurrentTab();
+    void CloseTabAtIndex(int index);
     void SaveTabState();
     void StartPreload();
     void FinishPreload();
@@ -42,7 +43,7 @@ class App
     void EvictDistantTabs();
     void Render();
     void UpdateImageStatusText();
-    HistogramCB BuildHistogramCB() const;
+    void SyncSidebar();
 
     // Recent files (MRU)
     void AddToRecentFiles(std::wstring path);
@@ -63,13 +64,19 @@ class App
     StartupTiming* m_timing = nullptr;
     bool m_needsRedraw = true;
 
-    // Histogram state
+    // Histogram state (data for sidebar display)
     HistogramData m_histogram;
-    bool m_showHistogram = true;
     int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
+
+    // Layer info for current file
+    ExrFileInfo m_layerInfo;
+    int m_activeLayer = 0;
 
     // Grid state
     bool m_showGrid = true;
+
+    // Display mode: 0=RGB, 1=R, 2=G, 3=B, 4=A (solo channel)
+    int m_displayMode = 0;
 
     // Open file tabs
     struct OpenTab
@@ -82,6 +89,8 @@ class App
         float gamma = 1.0f / 2.2f;
         ImageData image;
         HistogramData histogram;
+        ExrFileInfo layerInfo;
+        int activeLayer = 0;
     };
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
