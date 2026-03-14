@@ -507,8 +507,14 @@ void Window::MarkHelpMenuUpdate(bool available)
         return;
 
     // Help menu is at position 2 (File=0, View=1, Help=2)
-    ModifyMenuW(menu, 2, MF_BYPOSITION | MF_POPUP, reinterpret_cast<UINT_PTR>(GetSubMenu(menu, 2)),
-                available ? L"&Help *" : L"&Help");
+    // Update the owner-draw text data directly so we don't lose MFT_OWNERDRAW.
+    MENUITEMINFOW mii = {sizeof(mii)};
+    mii.fMask = MIIM_DATA;
+    GetMenuItemInfoW(menu, 2, TRUE, &mii);
+    // Free the old string and replace with the new one
+    free(reinterpret_cast<void*>(mii.dwItemData));
+    mii.dwItemData = reinterpret_cast<ULONG_PTR>(_wcsdup(available ? L"&Help *" : L"&Help"));
+    SetMenuItemInfoW(menu, 2, TRUE, &mii);
     DrawMenuBar(m_hwnd);
 }
 
