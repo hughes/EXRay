@@ -322,8 +322,6 @@ void Sidebar::LayoutControls()
     int y = m;
 
     // Histogram area is painted in OnPaint — just skip past it
-    // Label "Histogram" is drawn in OnPaint
-    y += labelH + MulDiv(2, dpi, 96);
     // histogram rect
     y += histH + MulDiv(4, dpi, 96);
 
@@ -422,10 +420,6 @@ void Sidebar::OnPaint()
     int y = m;
 
     // --- Histogram section ---
-    RECT labelRect = {m, y, w - m, y + labelH};
-    DrawTextW(memDC, L"Histogram", -1, &labelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-    y += labelH + MulDiv(2, dpi, 96);
-
     // Histogram background
     RECT histRect = {m, y, w - m, y + histH};
     HBRUSH histBg = CreateSolidBrush(Colors::Surface);
