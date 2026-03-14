@@ -100,7 +100,7 @@ void Theme::Refresh()
         Colors::Selection = GetSysColor(COLOR_HIGHLIGHT);
         Colors::SelectionText = GetSysColor(COLOR_HIGHLIGHTTEXT);
         Colors::Connector = GetSysColor(COLOR_GRAYTEXT);
-        Colors::Separator = GetSysColor(COLOR_BTNSHADOW);
+        Colors::Separator = GetSysColor(COLOR_3DLIGHT);
         Colors::ButtonHover = GetSysColor(COLOR_BTNHIGHLIGHT);
         Colors::ButtonPressed = GetSysColor(COLOR_BTNSHADOW);
         Colors::ButtonBorder = GetSysColor(COLOR_BTNSHADOW);
