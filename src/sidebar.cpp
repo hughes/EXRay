@@ -13,7 +13,6 @@
 #include <commctrl.h>
 #include <cstdio>
 
-
 static const wchar_t* const kSidebarClassName = L"EXRay_Sidebar";
 
 // Exposure trackbar: range -80 to +80 (maps to -20.0 to +20.0 EV in 0.25 steps)
@@ -27,8 +26,6 @@ static constexpr int kGammaTrackMin = 5;
 static constexpr int kGammaTrackMax = 20;
 static float GammaFromTrackPos(int pos) { return static_cast<float>(pos) * 0.05f; }
 static int TrackPosFromGamma(float g) { return static_cast<int>(g * 20.0f); }
-
-
 
 static COLORREF ChannelColor(int ch)
 {
@@ -75,16 +72,14 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
         for (int i = 0; i < 5; i++)
         {
             m_channelButtons[i] = CreateWindowExW(
-                0, WC_BUTTONW, labels[i], WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0,
-                m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelBtnBaseId + i)),
-                hInstance, nullptr);
+                0, WC_BUTTONW, labels[i], WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kChannelBtnBaseId + i)), hInstance, nullptr);
         }
     }
 
     // Exposure trackbar
     m_exposureTrack =
-        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                        0, 0, 0, 0, m_hwnd,
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 0, 0, 0, 0, m_hwnd,
                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kExposureTrackId)), hInstance, nullptr);
     SendMessageW(m_exposureTrack, TBM_SETRANGEMIN, FALSE, kExpTrackMin);
     SendMessageW(m_exposureTrack, TBM_SETRANGEMAX, FALSE, kExpTrackMax);
@@ -100,8 +95,7 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
 
     // Gamma trackbar
     m_gammaTrack =
-        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS,
-                        0, 0, 0, 0, m_hwnd,
+        CreateWindowExW(0, TRACKBAR_CLASSW, nullptr, WS_CHILD | WS_VISIBLE | TBS_HORZ | TBS_NOTICKS, 0, 0, 0, 0, m_hwnd,
                         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kGammaTrackId)), hInstance, nullptr);
     SendMessageW(m_gammaTrack, TBM_SETRANGEMIN, FALSE, kGammaTrackMin);
     SendMessageW(m_gammaTrack, TBM_SETRANGEMAX, FALSE, kGammaTrackMax);
@@ -111,10 +105,10 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     Theme::ApplyToControl(m_gammaTrack);
 
     // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
-    m_layerList =
-        CreateWindowExW(0, WC_LISTBOXW, nullptr,
-                        WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS,
-                        0, 0, 0, 0, m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLayerListId)), hInstance, nullptr);
+    m_layerList = CreateWindowExW(
+        0, WC_LISTBOXW, nullptr,
+        WS_CHILD | WS_VSCROLL | LBS_NOTIFY | LBS_NOINTEGRALHEIGHT | LBS_OWNERDRAWFIXED | LBS_HASSTRINGS, 0, 0, 0, 0,
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kLayerListId)), hInstance, nullptr);
     SendMessageW(m_layerList, WM_SETFONT, reinterpret_cast<WPARAM>(font), FALSE);
     Theme::ApplyToControl(m_layerList);
 
@@ -125,7 +119,8 @@ void Sidebar::SetFont(HFONT font)
 {
     m_font = font;
     for (auto btn : m_channelButtons)
-        if (btn) SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+        if (btn)
+            SendMessageW(btn, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_autoExpButton)
         SendMessageW(m_autoExpButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_layerList)
@@ -254,8 +249,8 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
                             swprintf_s(buf, L"Part %d", layer.partIndex);
                             partLabel = buf;
                         }
-                        int partIdx = static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0,
-                                                                     reinterpret_cast<LPARAM>(partLabel.c_str())));
+                        int partIdx = static_cast<int>(
+                            SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(partLabel.c_str())));
                         // indent=0, flags: high bit marks as header (non-selectable)
                         SendMessageW(m_layerList, LB_SETITEMDATA, partIdx, 0x80000000);
                     }
@@ -285,8 +280,8 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
                 }
             }
 
-            int listIdx = static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0,
-                                                         reinterpret_cast<LPARAM>(label.c_str())));
+            int listIdx =
+                static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
             // Store indent level in item data (low bits = indent, high bit = header flag)
             SendMessageW(m_layerList, LB_SETITEMDATA, listIdx, indent);
         }
@@ -356,7 +351,8 @@ void Sidebar::LayoutControls()
     // Exposure trackbar + auto button
     int trackW = w - 2 * m - buttonW - MulDiv(4, dpi, 96);
     hdwp = DeferWindowPos(hdwp, m_exposureTrack, nullptr, m, y, trackW, trackH, SWP_NOZORDER | SWP_NOACTIVATE);
-    hdwp = DeferWindowPos(hdwp, m_autoExpButton, nullptr, m + trackW + MulDiv(4, dpi, 96), y + (trackH - buttonH) / 2, buttonW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+    hdwp = DeferWindowPos(hdwp, m_autoExpButton, nullptr, m + trackW + MulDiv(4, dpi, 96), y + (trackH - buttonH) / 2,
+                          buttonW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
     y += trackH + m;
 
     // Gamma section — only in SDR mode
@@ -468,22 +464,28 @@ void Sidebar::OnPaint()
             {
                 int clipPx = static_cast<int>(clipT * barAreaW);
                 int crushPx = static_cast<int>(crushT * barAreaW);
-                if (clipPx < 0) clipPx = 0;
-                if (clipPx > barAreaW) clipPx = barAreaW;
-                if (crushPx < 0) crushPx = 0;
-                if (crushPx > barAreaW) crushPx = barAreaW;
+                if (clipPx < 0)
+                    clipPx = 0;
+                if (clipPx > barAreaW)
+                    clipPx = barAreaW;
+                if (crushPx < 0)
+                    crushPx = 0;
+                if (crushPx > barAreaW)
+                    crushPx = barAreaW;
 
                 // Histogram zone backgrounds (BGR pixel order for DIB)
                 COLORREF surf = Colors::Surface;
                 uint32_t bgNormal = GetRValue(surf) | (GetGValue(surf) << 8) | (GetBValue(surf) << 16);
                 // Crush zone slightly darker, clip zone slightly lighter
-                auto darken = [](uint32_t c, int amt) -> uint32_t {
+                auto darken = [](uint32_t c, int amt) -> uint32_t
+                {
                     int b = (std::max)(static_cast<int>(c & 0xFF) - amt, 0);
                     int g = (std::max)(static_cast<int>((c >> 8) & 0xFF) - amt, 0);
                     int r = (std::max)(static_cast<int>((c >> 16) & 0xFF) - amt, 0);
                     return static_cast<uint32_t>(b | (g << 8) | (r << 16));
                 };
-                auto lighten = [](uint32_t c, int amt) -> uint32_t {
+                auto lighten = [](uint32_t c, int amt) -> uint32_t
+                {
                     int b = (std::min)(static_cast<int>(c & 0xFF) + amt, 255);
                     int g = (std::min)(static_cast<int>((c >> 8) & 0xFF) + amt, 255);
                     int r = (std::min)(static_cast<int>((c >> 16) & 0xFF) + amt, 255);
@@ -498,8 +500,10 @@ void Sidebar::OnPaint()
                     for (int px = 0; px < barAreaW; px++)
                     {
                         uint32_t bg = bgNormal;
-                        if (px < crushPx) bg = bgCrush;
-                        else if (px >= clipPx) bg = bgClip;
+                        if (px < crushPx)
+                            bg = bgCrush;
+                        else if (px >= clipPx)
+                            bg = bgClip;
                         pixels[row * barAreaW + px] = bg;
                     }
                 }
@@ -510,10 +514,12 @@ void Sidebar::OnPaint()
                 {
                     float outLog2 = kDispMin + (static_cast<float>(px) + 0.5f) / barAreaW * kDispRange;
                     float sceneLog2 = outLog2 - m_exposure;
-                    if (sceneRange <= 0.0f) return 0.0f;
+                    if (sceneRange <= 0.0f)
+                        return 0.0f;
                     float t = (sceneLog2 - m_histogram.log2Min) / sceneRange;
                     int bin = static_cast<int>(t * HistogramData::kBinCount);
-                    if (bin < 0 || bin >= HistogramData::kBinCount) return 0.0f;
+                    if (bin < 0 || bin >= HistogramData::kBinCount)
+                        return 0.0f;
                     return bins[bin];
                 };
 
@@ -526,8 +532,10 @@ void Sidebar::OnPaint()
                         int bBarH = static_cast<int>(getBinValue(m_histogram.blue, px) * barAreaH);
 
                         int maxH = rBarH;
-                        if (gBarH > maxH) maxH = gBarH;
-                        if (bBarH > maxH) maxH = bBarH;
+                        if (gBarH > maxH)
+                            maxH = gBarH;
+                        if (bBarH > maxH)
+                            maxH = bBarH;
 
                         for (int row = 0; row < maxH && row < barAreaH; row++)
                         {
@@ -541,15 +549,43 @@ void Sidebar::OnPaint()
                             int sr = pr, sg = pg, sb = pb;
                             if (count > 0)
                             {
-                                sr = 0; sg = 0; sb = 0;
-                                if (row < rBarH) { sr += pr + (220 - pr) * 40 / 100; sg += pg * 60 / 100; sb += pb * 60 / 100; }
-                                if (row < gBarH) { sr += pr * 60 / 100; sg += pg + (200 - pg) * 40 / 100; sb += pb * 60 / 100; }
-                                if (row < bBarH) { sr += pr * 60 / 100; sg += pg * 60 / 100; sb += pb + (220 - pb) * 40 / 100; }
-                                sr /= count; sg /= count; sb /= count;
+                                sr = 0;
+                                sg = 0;
+                                sb = 0;
+                                if (row < rBarH)
+                                {
+                                    sr += pr + (220 - pr) * 40 / 100;
+                                    sg += pg * 60 / 100;
+                                    sb += pb * 60 / 100;
+                                }
+                                if (row < gBarH)
+                                {
+                                    sr += pr * 60 / 100;
+                                    sg += pg + (200 - pg) * 40 / 100;
+                                    sb += pb * 60 / 100;
+                                }
+                                if (row < bBarH)
+                                {
+                                    sr += pr * 60 / 100;
+                                    sg += pg * 60 / 100;
+                                    sb += pb + (220 - pb) * 40 / 100;
+                                }
+                                sr /= count;
+                                sg /= count;
+                                sb /= count;
                             }
-                            if (sr > 255) sr = 255; if (sr < 0) sr = 0;
-                            if (sg > 255) sg = 255; if (sg < 0) sg = 0;
-                            if (sb > 255) sb = 255; if (sb < 0) sb = 0;
+                            if (sr > 255)
+                                sr = 255;
+                            if (sr < 0)
+                                sr = 0;
+                            if (sg > 255)
+                                sg = 255;
+                            if (sg < 0)
+                                sg = 0;
+                            if (sb > 255)
+                                sb = 255;
+                            if (sb < 0)
+                                sb = 0;
                             p = static_cast<uint32_t>(sb | (sg << 8) | (sr << 16));
                         }
                     }
@@ -562,7 +598,8 @@ void Sidebar::OnPaint()
                     // Blend toward a contrasting color for the luminance curve
                     auto blendCurve = [&](int px, int row, float alpha)
                     {
-                        if (row < 0 || row >= barAreaH || px < 0 || px >= barAreaW) return;
+                        if (row < 0 || row >= barAreaH || px < 0 || px >= barAreaW)
+                            return;
                         uint32_t& p = pixels[row * barAreaW + px];
                         int pb = (p & 0xFF);
                         int pg = ((p >> 8) & 0xFF);
@@ -587,23 +624,30 @@ void Sidebar::OnPaint()
                         int rowHi = static_cast<int>(hi);
 
                         int coreRow = static_cast<int>(h1);
-                        if (coreRow >= barAreaH) coreRow = barAreaH - 1;
+                        if (coreRow >= barAreaH)
+                            coreRow = barAreaH - 1;
 
                         for (int row = rowLo; row <= rowHi && row < barAreaH; row++)
                             blendCurve(px, row, 0.1f);
 
-                        if (coreRow >= 0) blendCurve(px, coreRow, 0.25f);
-                        if (coreRow >= 1) blendCurve(px, coreRow - 1, 0.1f);
-                        if (coreRow + 1 < barAreaH) blendCurve(px, coreRow + 1, 0.1f);
+                        if (coreRow >= 0)
+                            blendCurve(px, coreRow, 0.25f);
+                        if (coreRow >= 1)
+                            blendCurve(px, coreRow - 1, 0.1f);
+                        if (coreRow + 1 < barAreaH)
+                            blendCurve(px, coreRow + 1, 0.1f);
                     }
                 }
                 else if (m_histogram.isValid)
                 {
                     const auto* bins = &m_histogram.luminance;
                     COLORREF color = ChannelColor(m_channelMode);
-                    if (m_channelMode == 1) bins = &m_histogram.red;
-                    else if (m_channelMode == 2) bins = &m_histogram.green;
-                    else if (m_channelMode == 3) bins = &m_histogram.blue;
+                    if (m_channelMode == 1)
+                        bins = &m_histogram.red;
+                    else if (m_channelMode == 2)
+                        bins = &m_histogram.green;
+                    else if (m_channelMode == 3)
+                        bins = &m_histogram.blue;
 
                     int cr = GetRValue(color), cg = GetGValue(color), cb = GetBValue(color);
 
@@ -611,7 +655,8 @@ void Sidebar::OnPaint()
                     {
                         float val = getBinValue(*bins, px);
                         int barH = static_cast<int>(val * barAreaH);
-                        if (barH < 1 && val > 0.0f) barH = 1;
+                        if (barH < 1 && val > 0.0f)
+                            barH = 1;
                         for (int row = 0; row < barH && row < barAreaH; row++)
                             pixels[row * barAreaW + px] = static_cast<uint32_t>(cb | (cg << 8) | (cr << 16));
                     }
@@ -779,8 +824,7 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
                     // Revert selection to active layer
                     if (self->m_activeLayer >= 0 &&
                         self->m_activeLayer < static_cast<int>(self->m_layerListMapping.size()))
-                        SendMessageW(self->m_layerList, LB_SETCURSEL,
-                                     self->m_layerListMapping[self->m_activeLayer], 0);
+                        SendMessageW(self->m_layerList, LB_SETCURSEL, self->m_layerListMapping[self->m_activeLayer], 0);
                     break;
                 }
 
@@ -810,8 +854,7 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         auto* dis = reinterpret_cast<DRAWITEMSTRUCT*>(lParam);
 
         // Owner-drawn channel buttons
-        if (dis->CtlID >= static_cast<UINT>(kChannelBtnBaseId) &&
-            dis->CtlID < static_cast<UINT>(kChannelBtnBaseId + 5))
+        if (dis->CtlID >= static_cast<UINT>(kChannelBtnBaseId) && dis->CtlID < static_cast<UINT>(kChannelBtnBaseId + 5))
         {
             int channel = static_cast<int>(dis->CtlID) - kChannelBtnBaseId;
             bool active = (channel == self->m_channelMode);
@@ -821,9 +864,9 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             // Channel accent colors
             static const COLORREF kChannelAccent[] = {
                 RGB(200, 200, 200), // Luminance — neutral
-                RGB(220,  60,  60), // Red
-                RGB( 60, 200,  60), // Green
-                RGB( 60, 100, 220), // Blue
+                RGB(220, 60, 60),   // Red
+                RGB(60, 200, 60),   // Green
+                RGB(60, 100, 220),  // Blue
                 RGB(200, 200, 200), // All — neutral
             };
 
@@ -845,13 +888,20 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             int L = dis->rcItem.left, T = dis->rcItem.top;
             int R = dis->rcItem.right - 1, B = dis->rcItem.bottom - 1;
             // Top edge
-            MoveToEx(dis->hDC, L, T, nullptr); LineTo(dis->hDC, R + 1, T);
+            MoveToEx(dis->hDC, L, T, nullptr);
+            LineTo(dis->hDC, R + 1, T);
             // Bottom edge
-            MoveToEx(dis->hDC, L, B, nullptr); LineTo(dis->hDC, R + 1, B);
+            MoveToEx(dis->hDC, L, B, nullptr);
+            LineTo(dis->hDC, R + 1, B);
             // Left edge only on first button
-            if (channel == 0) { MoveToEx(dis->hDC, L, T, nullptr); LineTo(dis->hDC, L, B + 1); }
+            if (channel == 0)
+            {
+                MoveToEx(dis->hDC, L, T, nullptr);
+                LineTo(dis->hDC, L, B + 1);
+            }
             // Right edge (doubles as separator for next button)
-            MoveToEx(dis->hDC, R, T, nullptr); LineTo(dis->hDC, R, B + 1);
+            MoveToEx(dis->hDC, R, T, nullptr);
+            LineTo(dis->hDC, R, B + 1);
             SelectObject(dis->hDC, oldPen);
             DeleteObject(borderPen);
 
@@ -860,7 +910,7 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             {
                 RECT indicator = dis->rcItem;
                 indicator.top = indicator.bottom - 2;
-                indicator.left += 1;  // inset within border
+                indicator.left += 1; // inset within border
                 indicator.right -= 1;
                 HBRUSH accentBrush = CreateSolidBrush(kChannelAccent[channel]);
                 FillRect(dis->hDC, &indicator, accentBrush);
@@ -991,7 +1041,8 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             // Draw text
             RECT textRect = dis->rcItem;
             textRect.left = xOffset;
-            HFONT font = self->m_font ? self->m_font : reinterpret_cast<HFONT>(SendMessageW(dis->hwndItem, WM_GETFONT, 0, 0));
+            HFONT font =
+                self->m_font ? self->m_font : reinterpret_cast<HFONT>(SendMessageW(dis->hwndItem, WM_GETFONT, 0, 0));
             HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
             DrawTextW(dis->hDC, text, -1, &textRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
             SelectObject(dis->hDC, oldFont);

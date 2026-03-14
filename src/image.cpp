@@ -15,10 +15,9 @@
 #include <ImfRgbaFile.h>
 #include <ImfTileDescription.h>
 #include <ImfTiledInputPart.h>
-#include <windows.h>
-
 #include <algorithm>
 #include <set>
+#include <windows.h>
 
 static std::string WideToUtf8(const std::wstring& wide)
 {
@@ -57,8 +56,8 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
         if (pixelBytes > kMaxPixelBytes)
         {
             char buf[128];
-            snprintf(buf, sizeof(buf), "Image too large (%d x %d, %.0f MB). Maximum is 2 GB.",
-                     width, height, static_cast<double>(pixelBytes) / (1024.0 * 1024.0));
+            snprintf(buf, sizeof(buf), "Image too large (%d x %d, %.0f MB). Maximum is 2 GB.", width, height,
+                     static_cast<double>(pixelBytes) / (1024.0 * 1024.0));
             errorMsg = buf;
             return false;
         }
@@ -234,8 +233,7 @@ bool ImageLoader::ScanLayers(const std::wstring& filePath, ExrFileInfo& outInfo,
 }
 
 // Try to find a channel matching one of the candidate suffixes
-static std::string FindChannel(const std::vector<std::string>& channels,
-                               const std::vector<std::string>& candidates)
+static std::string FindChannel(const std::vector<std::string>& channels, const std::vector<std::string>& candidates)
 {
     for (const auto& c : candidates)
     {
@@ -255,8 +253,8 @@ static std::string FindChannel(const std::vector<std::string>& channels,
     return {};
 }
 
-bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& layer,
-                               ImageData& outImage, std::string& errorMsg)
+bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& layer, ImageData& outImage,
+                               std::string& errorMsg)
 {
     try
     {
@@ -343,8 +341,8 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
 
         size_t xStride = 4 * sizeof(float);
         size_t yStride = static_cast<size_t>(width) * xStride;
-        char* base = reinterpret_cast<char*>(outImage.pixels.data())
-                     - dw.min.x * xStride - static_cast<size_t>(dw.min.y) * yStride;
+        char* base = reinterpret_cast<char*>(outImage.pixels.data()) - dw.min.x * xStride -
+                     static_cast<size_t>(dw.min.y) * yStride;
 
         Imf::FrameBuffer fb;
 

@@ -6,8 +6,8 @@
 
 #include "window.h"
 
-#include "themes.h"
 #include "resource.h"
+#include "themes.h"
 
 #include <algorithm>
 #include <shellapi.h>
@@ -150,10 +150,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
 
     HMENU menu = CreateAppMenu();
 
-    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kWindowClass, L"EXRay",
-                             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
-                             CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720,
-                             nullptr, menu, hInstance, this);
+    m_hwnd = CreateWindowExW(WS_EX_ACCEPTFILES, kWindowClass, L"EXRay", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                             CW_USEDEFAULT, CW_USEDEFAULT, 1280, 720, nullptr, menu, hInstance, this);
 
     if (!m_hwnd)
         return false;
@@ -175,8 +173,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     InitCommonControlsEx(&icex);
 
     // Status bar — custom-painted via subclass (no SBARS_SIZEGRIP to avoid light grip)
-    m_statusBar = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0,
-                                  m_hwnd, nullptr, hInstance, nullptr);
+    m_statusBar = CreateWindowExW(0, STATUSCLASSNAMEW, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
+                                  hInstance, nullptr);
     Theme::ApplyToControl(m_statusBar);
     SendMessageW(m_statusBar, WM_SETFONT, reinterpret_cast<WPARAM>(m_uiFont), FALSE);
     SetWindowSubclass(m_statusBar, StatusBarProc, 0, reinterpret_cast<DWORD_PTR>(this));
@@ -186,8 +184,8 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
 
     // Tab bar — custom-painted via subclass (TCS_OWNERDRAWFIXED still needed for item rects)
     m_tabBar = CreateWindowExW(0, WC_TABCONTROLW, nullptr,
-                               WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FOCUSNEVER | TCS_OWNERDRAWFIXED,
-                               0, 0, 0, 0, m_hwnd, nullptr, hInstance, nullptr);
+                               WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS | TCS_FOCUSNEVER | TCS_OWNERDRAWFIXED, 0, 0, 0,
+                               0, m_hwnd, nullptr, hInstance, nullptr);
     SendMessageW(m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(m_uiFont), FALSE);
     Theme::ApplyToControl(m_tabBar);
 
@@ -350,8 +348,7 @@ void Window::SetStatusText(int part, const wchar_t* text)
     if (!m_statusBar || part < 0 || part > 2)
         return;
     m_statusText[part] = text ? text : L"";
-    SendMessageW(m_statusBar, SB_SETTEXTW, part | SBT_OWNERDRAW,
-                 reinterpret_cast<LPARAM>(m_statusText[part].c_str()));
+    SendMessageW(m_statusBar, SB_SETTEXTW, part | SBT_OWNERDRAW, reinterpret_cast<LPARAM>(m_statusText[part].c_str()));
 }
 
 void Window::ToggleFullscreen()
@@ -464,8 +461,8 @@ void Window::UpdateMenuChecks(bool showGrid, int displayMode)
     CheckMenuItem(menu, IDM_VIEW_GRID, MF_BYCOMMAND | (showGrid ? MF_CHECKED : MF_UNCHECKED));
 
     // Radio-style check on channel display mode
-    UINT channelIds[] = {IDM_VIEW_CHANNEL_RGB, IDM_VIEW_CHANNEL_R, IDM_VIEW_CHANNEL_G,
-                         IDM_VIEW_CHANNEL_B, IDM_VIEW_CHANNEL_A};
+    UINT channelIds[] = {IDM_VIEW_CHANNEL_RGB, IDM_VIEW_CHANNEL_R, IDM_VIEW_CHANNEL_G, IDM_VIEW_CHANNEL_B,
+                         IDM_VIEW_CHANNEL_A};
     for (int i = 0; i < 5; i++)
         CheckMenuItem(menu, channelIds[i], MF_BYCOMMAND | (displayMode == i ? MF_CHECKED : MF_UNCHECKED));
 }
@@ -508,8 +505,7 @@ void Window::MarkHelpMenuUpdate(bool available)
         return;
 
     // Help menu is at position 2 (File=0, View=1, Help=2)
-    ModifyMenuW(menu, 2, MF_BYPOSITION | MF_POPUP,
-                reinterpret_cast<UINT_PTR>(GetSubMenu(menu, 2)),
+    ModifyMenuW(menu, 2, MF_BYPOSITION | MF_POPUP, reinterpret_cast<UINT_PTR>(GetSubMenu(menu, 2)),
                 available ? L"&Help *" : L"&Help");
     DrawMenuBar(m_hwnd);
 }
@@ -636,8 +632,7 @@ LRESULT CALLBACK Window::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPar
                 SetBkMode(dis->hDC, TRANSPARENT);
                 SetTextColor(dis->hDC, Colors::TextPrimary);
                 HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, self->m_uiFont));
-                DrawTextW(dis->hDC, text, -1, &dis->rcItem,
-                          DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+                DrawTextW(dis->hDC, text, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
                 SelectObject(dis->hDC, oldFont);
             }
             return TRUE;
@@ -834,7 +829,7 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
         ScreenToClient(hwnd, &pt);
         int delta = GET_WHEEL_DELTA_WPARAM(wParam);
-        bool ctrl  = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
+        bool ctrl = (GET_KEYSTATE_WPARAM(wParam) & MK_CONTROL) != 0;
         bool shift = (GET_KEYSTATE_WPARAM(wParam) & MK_SHIFT) != 0;
         if (self->onMouseWheel)
             self->onMouseWheel(pt.x, pt.y, delta, ctrl, shift);
@@ -906,7 +901,7 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     case WM_POINTERUP:
     {
         UINT32 pointerId = GET_POINTERID_WPARAM(wParam);
-        POINTER_INFO pi  = {};
+        POINTER_INFO pi = {};
         if (!GetPointerInfo(pointerId, &pi) || pi.pointerType != PT_TOUCH)
             return DefWindowProcW(hwnd, msg, wParam, lParam);
 
@@ -932,7 +927,11 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
 
             // Reset baseline so first POINTERUPDATE doesn't produce a stale delta
             int cx = 0, cy = 0;
-            for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+            for (int i = 0; i < self->m_touchCount; ++i)
+            {
+                cx += self->m_touches[i].x;
+                cy += self->m_touches[i].y;
+            }
             self->m_prevTouchCX = cx / self->m_touchCount;
             self->m_prevTouchCY = cy / self->m_touchCount;
             if (self->m_touchCount == 2)
@@ -956,7 +955,11 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             if (self->m_touchCount > 0)
             {
                 int cx = 0, cy = 0;
-                for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+                for (int i = 0; i < self->m_touchCount; ++i)
+                {
+                    cx += self->m_touches[i].x;
+                    cy += self->m_touches[i].y;
+                }
                 self->m_prevTouchCX = cx / self->m_touchCount;
                 self->m_prevTouchCY = cy / self->m_touchCount;
                 self->m_prevTouchDist = 0.0f;
@@ -986,7 +989,11 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
             if (self->m_touchCount > 0)
             {
                 int cx = 0, cy = 0;
-                for (int i = 0; i < self->m_touchCount; ++i) { cx += self->m_touches[i].x; cy += self->m_touches[i].y; }
+                for (int i = 0; i < self->m_touchCount; ++i)
+                {
+                    cx += self->m_touches[i].x;
+                    cy += self->m_touches[i].y;
+                }
                 cx /= self->m_touchCount;
                 cy /= self->m_touchCount;
 
@@ -1023,8 +1030,8 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     return DefWindowProcW(hwnd, msg, wParam, lParam);
 }
 
-LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                     UINT_PTR /*subclassId*/, DWORD_PTR refData)
+LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*subclassId*/,
+                                    DWORD_PTR refData)
 {
     auto* self = reinterpret_cast<Window*>(refData);
 
@@ -1165,8 +1172,7 @@ LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 textRect.right -= btnSize + btnMargin * 2;
             else
                 textRect.right -= MulDiv(4, dpi, 96);
-            DrawTextW(hdc, text, -1, &textRect,
-                      DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
+            DrawTextW(hdc, text, -1, &textRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX | DT_END_ELLIPSIS);
             SelectObject(hdc, oldFont);
 
             // Close button on active tab — centered vertically above the accent line
@@ -1180,16 +1186,24 @@ LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                 if (self->m_closeButtonHover)
                 {
                     int inset = MulDiv(1, dpi, 96);
-                    RECT hoverRect = {btnX - inset, btnY - inset,
-                                      btnX + btnSize + inset + 1, btnY + btnSize + inset + 1};
+                    RECT hoverRect = {btnX - inset, btnY - inset, btnX + btnSize + inset + 1,
+                                      btnY + btnSize + inset + 1};
                     int radius = MulDiv(3, dpi, 96);
                     // Shift the tab background toward mid-gray for a visible hover
                     COLORREF tabBg = Colors::TabActive;
                     int r = GetRValue(tabBg), g = GetGValue(tabBg), b = GetBValue(tabBg);
                     if (Theme::IsDark())
-                        { r += 30; g += 30; b += 30; }
+                    {
+                        r += 30;
+                        g += 30;
+                        b += 30;
+                    }
                     else
-                        { r -= 30; g -= 30; b -= 30; }
+                    {
+                        r -= 30;
+                        g -= 30;
+                        b -= 30;
+                    }
                     r = (std::max)(0, (std::min)(255, r));
                     g = (std::max)(0, (std::min)(255, g));
                     b = (std::max)(0, (std::min)(255, b));
@@ -1197,8 +1211,8 @@ LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
                     HPEN nullPen = static_cast<HPEN>(GetStockObject(NULL_PEN));
                     HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, hoverBr));
                     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, nullPen));
-                    RoundRect(hdc, hoverRect.left, hoverRect.top,
-                              hoverRect.right + 1, hoverRect.bottom + 1, radius, radius);
+                    RoundRect(hdc, hoverRect.left, hoverRect.top, hoverRect.right + 1, hoverRect.bottom + 1, radius,
+                              radius);
                     SelectObject(hdc, oldBr);
                     SelectObject(hdc, oldPen);
                     DeleteObject(hoverBr);
@@ -1231,8 +1245,8 @@ LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM l
             // Vertical separator between tabs (skip if next tab is active or this is active)
             if (!isActive && i + 1 < count && i + 1 != activeSel)
             {
-                RECT sep = {tabRect.right - 1, tabRect.top + MulDiv(4, dpi, 96),
-                            tabRect.right, tabRect.bottom - MulDiv(4, dpi, 96)};
+                RECT sep = {tabRect.right - 1, tabRect.top + MulDiv(4, dpi, 96), tabRect.right,
+                            tabRect.bottom - MulDiv(4, dpi, 96)};
                 HBRUSH sepBr = CreateSolidBrush(Colors::Separator);
                 FillRect(hdc, &sep, sepBr);
                 DeleteObject(sepBr);
@@ -1342,8 +1356,8 @@ LRESULT CALLBACK Window::SplitterProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
 }
 
 // Status bar subclass — custom painting eliminates 3D borders
-LRESULT CALLBACK Window::StatusBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
-                                        UINT_PTR /*subclassId*/, DWORD_PTR refData)
+LRESULT CALLBACK Window::StatusBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR /*subclassId*/,
+                                       DWORD_PTR refData)
 {
     auto* self = reinterpret_cast<Window*>(refData);
 
@@ -1387,8 +1401,7 @@ LRESULT CALLBACK Window::StatusBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARA
             {
                 RECT textRect = partRect;
                 textRect.left += 4;
-                DrawTextW(hdc, text, -1, &textRect,
-                          DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
+                DrawTextW(hdc, text, -1, &textRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX);
             }
         }
 

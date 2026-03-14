@@ -33,8 +33,8 @@ struct ViewportCB
     int isHDR;           // 0=SDR gamma output, 1=HDR scRGB linear
     float sdrWhiteNits;  // 80.0
     float displayMaxNits;
-    int showGrid;        // 0=off, 1=on
-    int displayMode;     // 0=normal, 1=R, 2=G, 3=B, 4=A
+    int showGrid;    // 0=off, 1=on
+    int displayMode; // 0=normal, 1=R, 2=G, 3=B, 4=A
 }; // 96 bytes
 
 class Renderer

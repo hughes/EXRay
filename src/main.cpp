@@ -15,7 +15,6 @@
 #include <string>
 #include <windows.h>
 
-
 static const wchar_t* const kAppMutexName = L"EXRay_{387a4a4c-d19e-4ae5-9bfc-bbaa59ceccb1}";
 
 StartupTiming g_timing;
@@ -31,8 +30,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         GetTempPathW(MAX_PATH, tempDir);
         wchar_t logPath[MAX_PATH];
         swprintf_s(logPath, L"%sEXRay_debug.log", tempDir);
-        HANDLE hLogFile = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ,
-                                      nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+        HANDLE hLogFile = CreateFileW(logPath, GENERIC_WRITE, FILE_SHARE_READ, nullptr, CREATE_ALWAYS,
+                                      FILE_ATTRIBUTE_NORMAL, nullptr);
         if (hLogFile != INVALID_HANDLE_VALUE)
         {
             _CrtSetReportMode(_CRT_WARN, _CRTDBG_MODE_FILE | _CRTDBG_MODE_DEBUG);
@@ -78,7 +77,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
             }
 
             // Strip quotes from both paths.
-            auto stripQuotes = [](std::wstring& s) {
+            auto stripQuotes = [](std::wstring& s)
+            {
                 if (s.size() >= 2 && s.front() == L'"' && s.back() == L'"')
                     s = s.substr(1, s.size() - 2);
             };
@@ -142,7 +142,8 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
                 imagesPath = rest;
             }
 
-            auto stripQuotes = [](std::wstring& s) {
+            auto stripQuotes = [](std::wstring& s)
+            {
                 if (s.size() >= 2 && s.front() == L'"' && s.back() == L'"')
                     s = s.substr(1, s.size() - 2);
             };

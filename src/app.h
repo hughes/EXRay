@@ -23,8 +23,7 @@
 class App
 {
   public:
-    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing,
-                    bool smokeTest = false);
+    bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest = false);
     int Run();
 
   private:

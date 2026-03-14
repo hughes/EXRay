@@ -64,9 +64,9 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (ctrl)
             m_viewport.ZoomAt(static_cast<float>(x), static_cast<float>(y), static_cast<float>(delta));
         else if (shift)
-            m_viewport.Pan(static_cast<float>(delta) * 0.8f, 0.0f);  // Shift+scroll → pan X
+            m_viewport.Pan(static_cast<float>(delta) * 0.8f, 0.0f); // Shift+scroll → pan X
         else
-            m_viewport.Pan(0.0f, static_cast<float>(delta) * 0.8f);   // scroll → pan Y
+            m_viewport.Pan(0.0f, static_cast<float>(delta) * 0.8f); // scroll → pan Y
         m_needsRedraw = true;
     };
 
@@ -149,8 +149,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             SavePreferences();
             SyncSidebar();
         }
-        else if ((GetKeyState(VK_SHIFT) & 0x8000) &&
-                 (vk == VK_OEM_3 || (vk >= '1' && vk <= '4')))
+        else if ((GetKeyState(VK_SHIFT) & 0x8000) && (vk == VK_OEM_3 || (vk >= '1' && vk <= '4')))
         {
             m_displayMode = (vk == VK_OEM_3) ? 0 : (vk - '0');
             m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
@@ -233,10 +232,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         SyncSidebar();
         m_needsRedraw = true;
     };
-    sidebar.onLayerSelect = [this](int layerIndex)
-    {
-        LoadLayer(layerIndex);
-    };
+    sidebar.onLayerSelect = [this](int layerIndex) { LoadLayer(layerIndex); };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
     {
@@ -262,8 +258,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", px[0], px[1], px[2], px[3]);
         AppendMenuW(popup, MF_STRING, 1, label);
 
-        int cmd = TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenX, screenY, 0, m_window.GetHwnd(),
-                                 nullptr);
+        int cmd =
+            TrackPopupMenu(popup, TPM_RETURNCMD | TPM_RIGHTBUTTON, screenX, screenY, 0, m_window.GetHwnd(), nullptr);
         DestroyMenu(popup);
 
         if (cmd == 1)
@@ -330,7 +326,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_image = std::move(m_pendingImage);
             m_renderer.UploadImage(m_image);
             m_histogram = HistogramComputer::Compute(m_image);
-    
+
             m_timing->textureUploaded = StartupTiming::Now();
 
             m_viewport.imageWidth = static_cast<float>(m_image.width);
@@ -343,7 +339,16 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
             m_activeLayer = 0;
 
-            m_openTabs.push_back({cmdLinePath, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}, m_layerInfo, m_activeLayer});
+            m_openTabs.push_back({cmdLinePath,
+                                  m_viewport.exposure,
+                                  m_viewport.zoom,
+                                  m_viewport.panX,
+                                  m_viewport.panY,
+                                  m_viewport.gamma,
+                                  {},
+                                  {},
+                                  m_layerInfo,
+                                  m_activeLayer});
             m_activeTab = 0;
             m_window.AddTab(0, ExtractFilename(cmdLinePath));
             m_window.SetActiveTab(0);
@@ -383,8 +388,7 @@ void App::StartUpdateCheck()
     m_updateThread = std::thread(
         [this, hwnd]()
         {
-            m_updateResult =
-                UpdateChecker::Check(EXRAY_VERSION_MAJOR, EXRAY_VERSION_MINOR, EXRAY_VERSION_PATCH);
+            m_updateResult = UpdateChecker::Check(EXRAY_VERSION_MAJOR, EXRAY_VERSION_MINOR, EXRAY_VERSION_PATCH);
             m_updateCheckComplete = true;
             PostMessageW(hwnd, WM_APP + 1, 0, 0);
         });
@@ -614,8 +618,7 @@ void App::OnCommand(int commandId)
         HICON bigIcon = static_cast<HICON>(
             LoadImageW(m_hInstance, MAKEINTRESOURCEW(IDI_APPICON), IMAGE_ICON, 64, 64, LR_DEFAULTCOLOR));
 
-        std::wstring content = L"Version " EXRAY_VERSION_WSTR L"\n"
-                               EXRAY_COPYRIGHT_W L"\n\n"
+        std::wstring content = L"Version " EXRAY_VERSION_WSTR L"\n" EXRAY_COPYRIGHT_W L"\n\n"
                                L"<a href=\"https://github.com/hughes/EXRay\">github.com/hughes/EXRay</a>\n"
                                L"Open-source. Free of ads, forever.";
 
@@ -747,9 +750,8 @@ bool App::LoadLayer(int layerIndex)
         // so the image occupies the same screen space
         const auto& oldLayer = m_layerInfo.layers[m_activeLayer];
         const auto& newLayer = m_layerInfo.layers[layerIndex];
-        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1
-                           && oldLayer.name == newLayer.name
-                           && oldLayer.partIndex == newLayer.partIndex;
+        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
+                           oldLayer.partIndex == newLayer.partIndex;
 
         float oldWidth = m_viewport.imageWidth;
 
@@ -800,7 +802,16 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
-    m_openTabs.push_back({path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {}, {}, m_layerInfo, m_activeLayer});
+    m_openTabs.push_back({path,
+                          m_viewport.exposure,
+                          m_viewport.zoom,
+                          m_viewport.panX,
+                          m_viewport.panY,
+                          m_viewport.gamma,
+                          {},
+                          {},
+                          m_layerInfo,
+                          m_activeLayer});
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
     m_window.AddTab(newIndex, ExtractFilename(path));
     m_activeTab = newIndex;
@@ -1031,7 +1042,8 @@ void App::UpdateImageStatusText()
     wchar_t infoBuf[192];
     if (m_viewport.isHDR)
     {
-        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height, m_viewport.exposure, m_viewport.displayMaxNits);
+        swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height,
+                   m_viewport.exposure, m_viewport.displayMaxNits);
     }
     else
     {
