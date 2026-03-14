@@ -779,6 +779,19 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     {
     case WM_LBUTTONDOWN:
         SetFocus(hwnd);
+        self->m_leftDragging = true;
+        self->m_lastDragX = GET_X_LPARAM(lParam);
+        self->m_lastDragY = GET_Y_LPARAM(lParam);
+        SetCapture(hwnd);
+        return 0;
+
+    case WM_LBUTTONUP:
+        if (self->m_leftDragging)
+        {
+            self->m_leftDragging = false;
+            if (!self->m_middleDragging)
+                ReleaseCapture();
+        }
         return 0;
 
     case WM_SETFOCUS:
@@ -851,7 +864,7 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         int x = GET_X_LPARAM(lParam);
         int y = GET_Y_LPARAM(lParam);
 
-        if (self->m_middleDragging)
+        if (self->m_leftDragging || self->m_middleDragging)
         {
             int dx = x - self->m_lastDragX;
             int dy = y - self->m_lastDragY;
@@ -878,7 +891,8 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     case WM_MBUTTONUP:
     {
         self->m_middleDragging = false;
-        ReleaseCapture();
+        if (!self->m_leftDragging)
+            ReleaseCapture();
         return 0;
     }
 

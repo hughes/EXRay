@@ -89,7 +89,7 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
                 if (cumulative >= p97Target)
                 {
                     float p97Log2 = result.log2Min + (static_cast<float>(i) / (B - 1)) * range;
-                    result.autoExposure = -p97Log2;
+                    result.autoExposure = std::round(-p97Log2 * 4.0f) / 4.0f;
                     break;
                 }
             }

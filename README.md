@@ -19,7 +19,7 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 - **Dark & light themes** - follows your Windows appearance setting, DPI-aware
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
-- **Trackpad & touchscreen** - two-finger pan, pinch-to-zoom, and single-touch drag
+- **Trackpad & touchscreen** - pinch-to-zoom, click-drag to pan, single-touch drag
 
 ## Supported EXR Features
 
@@ -50,10 +50,9 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
 | Fit to window | `Ctrl+0` |
 | Actual size (1:1) | `Ctrl+1` |
-| Zoom | `Ctrl+Scroll` · pinch (centered on cursor) |
-| Pan (vertical) | Scroll · two-finger swipe · middle mouse drag · touch drag |
-| Pan (horizontal) | `Shift+Scroll` · two-finger horizontal swipe |
-| Exposure ±0.25 EV | `+` / `-` |
+| Zoom | Scroll · pinch (centered on cursor) |
+| Pan | Click-drag · middle mouse drag · touch drag |
+| Exposure ±0.25 EV | `Shift+Scroll` · horizontal scroll · `+` / `-` |
 | Gamma ±0.05 (SDR) | `]` / `[` |
 | Toggle histogram | `H` |
 | Cycle histogram channel | `C` |

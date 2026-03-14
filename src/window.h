@@ -106,6 +106,7 @@ class Window
     std::wstring m_statusText[3];
 
     // Drag state
+    bool m_leftDragging = false;
     bool m_middleDragging = false;
     int m_lastDragX = 0;
     int m_lastDragY = 0;
