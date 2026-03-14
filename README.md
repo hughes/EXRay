@@ -10,10 +10,13 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 - **Instant loading** - D3D11 hardware-accelerated rendering with background preload for adjacent tabs
 - **HDR display support** - auto-detects HDR-capable monitors and outputs scRGB linear
 - **Exposure & gamma control** - adjust EV stops and gamma with real-time controls
+- **Sidebar** - layer browser, histogram, and exposure/gamma controls
+- **Multi-layer & multi-channel** - browse EXR layers in a tree view, inspect individual channels
 - **Histogram overlay** - per-channel histogram with luminance
 - **Pixel inspector** - live RGBA readout under cursor in the status bar and right-click to copy
 - **Pixel grid** - sub-pixel grid overlay that fades in at high zoom levels
-- **Multi-image tabs** - open multiple EXR files
+- **Multi-image tabs** - open multiple EXR files, tab interactions to close
+- **Dark & light themes** - follows your Windows appearance setting, DPI-aware
 - **Drag and drop** - drop `.exr` files onto the window to open them
 - **Fullscreen** - borderless fullscreen on the current monitor
 - **Trackpad & touchscreen** - two-finger pan, pinch-to-zoom, and single-touch drag
@@ -33,8 +36,8 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Multi-view / stereo | Default view only |
 | Deep images | Not supported |
 | Integer pixel types | Not supported |
-| Multi-resolution (mipmap/ripmap) | Not supported |
-| Arbitrary channels (Z, normals, IDs) | Not supported (RGBA only) |
+| Multi-resolution (mipmaps) | Full |
+| Arbitrary channels (Z, normals, IDs) | Full (browse and inspect via sidebar) |
 | Chromaticities / color profiles | Not applied (displayed as Rec. 709) |
 
 ## Controls and Hotkeys
