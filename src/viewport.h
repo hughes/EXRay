@@ -9,8 +9,24 @@
 
 struct ViewportState
 {
-    static constexpr float kMinZoom = 0.01f;
-    static constexpr float kMaxZoom = 100.0f;
+    static constexpr float kDefaultMinZoom = 0.01f;
+    static constexpr float kDefaultMaxZoom = 100.0f;
+
+    // Min zoom: image must remain at least 1 screen pixel in its largest dimension
+    float MinZoom() const
+    {
+        if (imageWidth > 0 && imageHeight > 0)
+            return kDefaultMinZoom * (std::max)(1.0f, clientHeight / imageHeight);
+        return kDefaultMinZoom;
+    }
+
+    // Max zoom scales with viewport/image ratio so tiny mips can fill the screen
+    float MaxZoom() const
+    {
+        if (imageHeight > 0 && clientHeight > 0)
+            return kDefaultMaxZoom * (std::max)(1.0f, (clientHeight / imageHeight));
+        return kDefaultMaxZoom;
+    }
 
     // Image dimensions (set when image loads)
     float imageWidth = 0;

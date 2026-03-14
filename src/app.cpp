@@ -762,7 +762,7 @@ bool App::LoadLayer(int layerIndex)
         m_viewport.imageHeight = static_cast<float>(m_image.height);
 
         if (isMipSwitch && oldWidth > 0.0f)
-            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, ViewportState::kMaxZoom);
+            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
 
         SyncSidebar();
         UpdateImageStatusText();

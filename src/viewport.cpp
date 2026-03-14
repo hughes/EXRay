@@ -74,7 +74,7 @@ void ViewportState::ZoomAt(float screenX, float screenY, float delta)
     zoom *= factor;
 
     // Clamp zoom to reasonable range
-    zoom = (std::max)(kMinZoom, (std::min)(zoom, kMaxZoom));
+    zoom = (std::max)(MinZoom(), (std::min)(zoom, MaxZoom()));
 
     // Adjust pan so the point under the cursor stays fixed
     float ratio = zoom / oldZoom;
@@ -85,7 +85,7 @@ void ViewportState::ZoomAt(float screenX, float screenY, float delta)
 void ViewportState::ZoomAtScale(float screenX, float screenY, float scale)
 {
     float oldZoom = zoom;
-    zoom = (std::max)(kMinZoom, (std::min)(zoom * scale, kMaxZoom));
+    zoom = (std::max)(MinZoom(), (std::min)(zoom * scale, MaxZoom()));
     float ratio = zoom / oldZoom;
     panX = screenX - (screenX - panX) * ratio;
     panY = screenY - (screenY - panY) * ratio;
