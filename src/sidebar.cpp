@@ -535,14 +535,22 @@ void Sidebar::OnPaint()
                             int pb = (p & 0xFF);
                             int pg = ((p >> 8) & 0xFF);
                             int pr = ((p >> 16) & 0xFF);
-                            // Blend toward channel color (works on both light and dark backgrounds)
-                            if (row < rBarH) { pr = pr + (220 - pr) * 40 / 100; pg = pg * 60 / 100; pb = pb * 60 / 100; }
-                            if (row < gBarH) { pr = pr * 60 / 100; pg = pg + (200 - pg) * 40 / 100; pb = pb * 60 / 100; }
-                            if (row < bBarH) { pr = pr * 60 / 100; pg = pg * 60 / 100; pb = pb + (220 - pb) * 40 / 100; }
-                            if (pr > 255) pr = 255; if (pr < 0) pr = 0;
-                            if (pg > 255) pg = 255; if (pg < 0) pg = 0;
-                            if (pb > 255) pb = 255; if (pb < 0) pb = 0;
-                            p = static_cast<uint32_t>(pb | (pg << 8) | (pr << 16));
+                            // Compute each channel's color independently from the background,
+                            // then average the contributing channels to avoid order-dependent bias.
+                            int count = (row < rBarH) + (row < gBarH) + (row < bBarH);
+                            int sr = pr, sg = pg, sb = pb;
+                            if (count > 0)
+                            {
+                                sr = 0; sg = 0; sb = 0;
+                                if (row < rBarH) { sr += pr + (220 - pr) * 40 / 100; sg += pg * 60 / 100; sb += pb * 60 / 100; }
+                                if (row < gBarH) { sr += pr * 60 / 100; sg += pg + (200 - pg) * 40 / 100; sb += pb * 60 / 100; }
+                                if (row < bBarH) { sr += pr * 60 / 100; sg += pg * 60 / 100; sb += pb + (220 - pb) * 40 / 100; }
+                                sr /= count; sg /= count; sb /= count;
+                            }
+                            if (sr > 255) sr = 255; if (sr < 0) sr = 0;
+                            if (sg > 255) sg = 255; if (sg < 0) sg = 0;
+                            if (sb > 255) sb = 255; if (sb < 0) sb = 0;
+                            p = static_cast<uint32_t>(sb | (sg << 8) | (sr << 16));
                         }
                     }
 
