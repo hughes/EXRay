@@ -38,7 +38,7 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Integer pixel types | Not supported |
 | Multi-resolution (mipmaps) | Full |
 | Arbitrary channels (Z, normals, IDs) | Full (browse and inspect via sidebar) |
-| Chromaticities / color profiles | Not applied (displayed as Rec. 709) |
+| Chromaticities / color profiles | Auto-converted to Rec. 709 (with Bradford adaptation) |
 
 ## Controls and Hotkeys
 
