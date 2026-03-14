@@ -60,6 +60,7 @@ class Window
     // Update View menu check marks / radio state
     void UpdateMenuChecks(bool showGrid, int displayMode);
     void UpdateHDRMenu(bool hdrCapable, bool hdrEnabled);
+    void EnableImageMenuItems(bool hasImage);
     void MarkHelpMenuUpdate(bool available);
 
     // Sidebar (always visible)

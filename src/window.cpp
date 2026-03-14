@@ -371,6 +371,18 @@ void Window::UpdateMenuChecks(bool showGrid, int displayMode)
         CheckMenuItem(menu, channelIds[i], MF_BYCOMMAND | (displayMode == i ? MF_CHECKED : MF_UNCHECKED));
 }
 
+void Window::EnableImageMenuItems(bool hasImage)
+{
+    HMENU menu = GetMenu(m_hwnd);
+    if (!menu)
+        menu = m_savedMenu;
+    if (!menu)
+        return;
+
+    UINT flag = hasImage ? MF_ENABLED : MF_GRAYED;
+    EnableMenuItem(menu, IDM_FILE_RELOAD, MF_BYCOMMAND | flag);
+}
+
 void Window::UpdateHDRMenu(bool hdrCapable, bool hdrEnabled)
 {
     HMENU menu = GetMenu(m_hwnd);

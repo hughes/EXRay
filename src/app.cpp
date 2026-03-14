@@ -1044,8 +1044,10 @@ void App::UpdateImageStatusText()
 
 void App::SyncSidebar()
 {
+    bool hasImage = m_renderer.HasImage();
     Sidebar& sb = m_window.GetSidebar();
-    sb.SetEnabled(m_renderer.HasImage());
+    sb.SetEnabled(hasImage);
+    m_window.EnableImageMenuItems(hasImage);
     sb.SetHistogramData(m_histogram, m_histogramChannel);
     sb.SetExposureGamma(m_viewport.exposure, m_viewport.gamma, m_viewport.isHDR);
     sb.SetLayers(m_layerInfo, m_activeLayer);
