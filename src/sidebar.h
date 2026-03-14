@@ -34,6 +34,10 @@ class Sidebar
     // Update display data (does not take ownership — copies what it needs)
     void SetHistogramData(const HistogramData& data, int channelMode);
     void SetExposureGamma(float exposure, float gamma, bool isHDR);
+    void SetFont(HFONT font);
+
+    // Re-apply theme to all child controls (call after Theme::Refresh())
+    void RefreshTheme();
 
     // Layer browser
     void SetLayers(const ExrFileInfo& info, int activeLayer);
@@ -53,6 +57,7 @@ class Sidebar
     HWND m_hwnd = nullptr;
     HWND m_parent = nullptr;
     bool m_visible = false;
+    bool m_enabled = false;
 
     // Exposure/gamma trackbars
     HWND m_exposureTrack = nullptr;
@@ -78,6 +83,9 @@ class Sidebar
 
     // Suppress feedback loops when setting trackbar position programmatically
     bool m_suppressTrackbar = false;
+
+    // Font (not owned — managed by Window, passed via SetFont)
+    HFONT m_font = nullptr;
 
     static constexpr int kBaseWidth = 240;
     static constexpr int kHistogramHeight = 100;

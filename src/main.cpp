@@ -7,6 +7,7 @@
 #include "app.h"
 #include "benchmark.h"
 #include "crash_handler.h"
+#include "themes.h"
 #include "timing.h"
 #include "validate.h"
 
@@ -216,6 +217,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     g_timing.processStart = StartupTiming::Now();
 
     SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
+    Theme::Init();
 
     App app;
     if (!app.Initialize(hInstance, nCmdShow, lpCmdLine, g_timing, smokeTest))

@@ -13,6 +13,7 @@
 
 #include <functional>
 #include <string>
+#include <utility>
 #include <vector>
 
 // Window class name — used by FindWindow for single-instance detection
@@ -102,6 +103,9 @@ class Window
     CommandHandler m_onCommand;
     ResizeHandler m_onResize;
 
+    // Status bar text storage (SBT_OWNERDRAW needs persistent strings)
+    std::wstring m_statusText[3];
+
     // Drag state
     bool m_middleDragging = false;
     int m_lastDragX = 0;
@@ -123,10 +127,39 @@ class Window
     WINDOWPLACEMENT m_savedPlacement = {};
     HMENU m_savedMenu = nullptr;
 
+    // DPI-scaled UI font (owned, destroyed on DPI change and shutdown)
+    HFONT m_uiFont = nullptr;
+    void RecreateFont();
+
+    // Viewport focus tracking
+    bool m_viewportFocused = false;
+
+    // Tab close button hover state
+    bool m_closeButtonHover = false;
+
+    // Sidebar resizing
+    bool m_sidebarDragging = false;
+    int m_sidebarBaseWidth = 240; // DPI-independent base width (persisted)
+    static constexpr int kMinSidebarWidth = 180;
+    static constexpr int kMaxSidebarWidth = 400;
+    int GetSidebarWidth() const;
+    static LRESULT CALLBACK SplitterProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    HWND m_splitter = nullptr;
+
     int GetTabBarHeight() const;
     int GetStatusBarHeight() const;
 
-    // Tab bar subclass for middle-click close
+    // Tab bar subclass for middle-click close and custom painting
     static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
                                         UINT_PTR subclassId, DWORD_PTR refData);
+
+    // Status bar subclass for borderless custom painting
+    static LRESULT CALLBACK StatusBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                           UINT_PTR subclassId, DWORD_PTR refData);
+
+    // Paint over the 1px system border below the menu bar
+    void PaintMenuBarBorder();
+
+    // Refresh all controls after system theme change
+    void RefreshTheme();
 };

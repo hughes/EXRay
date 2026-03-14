@@ -35,6 +35,8 @@ cc_binary(
         "src/main.cpp",
         "src/app.h",
         "src/app.cpp",
+        "src/themes.h",
+        "src/themes.cpp",
         "src/window.h",
         "src/window.cpp",
         "src/sidebar.h",
@@ -76,6 +78,9 @@ cc_binary(
         "-DEFAULTLIB:ole32.lib",
         "-DEFAULTLIB:dbghelp.lib",
         "-DEFAULTLIB:winhttp.lib",
+        "-DEFAULTLIB:advapi32.lib",
+        "-DEFAULTLIB:uxtheme.lib",
+        "-DEFAULTLIB:dwmapi.lib",
         "$(location :app_resources)",
     ],
 )
