@@ -36,6 +36,7 @@ class App
     bool LoadLayer(int layerIndex);
     void SwitchToTab(int index);
     void CloseCurrentTab();
+    void CloseTabAtIndex(int index);
     void SaveTabState();
     void StartPreload();
     void FinishPreload();

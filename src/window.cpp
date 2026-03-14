@@ -132,6 +132,9 @@ bool Window::Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand,
     HFONT statusFont = reinterpret_cast<HFONT>(SendMessageW(m_statusBar, WM_GETFONT, 0, 0));
     SendMessageW(m_tabBar, WM_SETFONT, reinterpret_cast<WPARAM>(statusFont), FALSE);
 
+    // Subclass the tab bar to intercept middle-click for tab close
+    SetWindowSubclass(m_tabBar, TabBarProc, 0, reinterpret_cast<DWORD_PTR>(this));
+
     // Create render area child window — D3D11 swapchain targets this, not the main window
     m_renderArea = CreateWindowExW(0, kRenderClassName, nullptr, WS_CHILD | WS_VISIBLE, 0, 0, 0, 0, m_hwnd, nullptr,
                                    hInstance, this);
@@ -772,4 +775,21 @@ LRESULT CALLBACK Window::RenderAreaProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
     }
 
     return DefWindowProcW(hwnd, msg, wParam, lParam);
+}
+
+LRESULT CALLBACK Window::TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                     UINT_PTR /*subclassId*/, DWORD_PTR refData)
+{
+    if (msg == WM_MBUTTONDOWN)
+    {
+        auto* self = reinterpret_cast<Window*>(refData);
+        TCHITTESTINFO hitInfo = {};
+        hitInfo.pt.x = GET_X_LPARAM(lParam);
+        hitInfo.pt.y = GET_Y_LPARAM(lParam);
+        int tab = TabCtrl_HitTest(hwnd, &hitInfo);
+        if (tab >= 0 && self->onTabClose)
+            self->onTabClose(tab);
+        return 0;
+    }
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }

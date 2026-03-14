@@ -35,6 +35,7 @@ class Window
     using DropHandler = std::function<void(const wchar_t* path)>;
     using TabChangeHandler = std::function<void(int newIndex)>;
     using ContextMenuHandler = std::function<void(int screenX, int screenY)>;
+    using TabCloseHandler = std::function<void(int tabIndex)>;
     using DisplayChangeHandler = std::function<void()>;
 
     bool Create(HINSTANCE hInstance, int nCmdShow, CommandHandler onCommand, ResizeHandler onResize);
@@ -81,6 +82,7 @@ class Window
     DropHandler        onDrop;
     TabChangeHandler      onTabChange;
     ContextMenuHandler    onContextMenu;
+    TabCloseHandler       onTabClose;
     DisplayChangeHandler  onDisplayChange;
 
   private:
@@ -122,4 +124,8 @@ class Window
 
     int GetTabBarHeight() const;
     int GetStatusBarHeight() const;
+
+    // Tab bar subclass for middle-click close
+    static LRESULT CALLBACK TabBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                        UINT_PTR subclassId, DWORD_PTR refData);
 };

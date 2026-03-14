@@ -199,6 +199,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_needsRedraw = true;
     };
     m_window.onTabChange = [this](int index) { SwitchToTab(index); };
+    m_window.onTabClose = [this](int index) { CloseTabAtIndex(index); };
 
     // Sidebar callbacks
     Sidebar& sidebar = m_window.GetSidebar();
@@ -905,6 +906,32 @@ void App::CloseCurrentTab()
         m_activeTab = -1;
         SwitchToTab(newActive);
     }
+}
+
+void App::CloseTabAtIndex(int index)
+{
+    if (index < 0 || index >= static_cast<int>(m_openTabs.size()))
+        return;
+
+    // If closing the active tab, reuse existing logic
+    if (index == m_activeTab)
+    {
+        CloseCurrentTab();
+        return;
+    }
+
+    // Invalidate preload — tab indices are shifting
+    m_preloadIndex = -1;
+
+    m_openTabs.erase(m_openTabs.begin() + index);
+    m_window.RemoveTab(index);
+
+    // Adjust active tab index if it was after the removed tab
+    if (m_activeTab > index)
+        m_activeTab--;
+
+    m_window.SetActiveTab(m_activeTab);
+    StartPreload();
 }
 
 void App::SaveTabState()
