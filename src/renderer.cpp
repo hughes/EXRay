@@ -27,6 +27,9 @@ cbuffer ViewportCB : register(b0) {
     float    displayMaxNits;
     int      showGrid;
     int      displayMode;
+    float4   colorMatrixRow0;
+    float4   colorMatrixRow1;
+    float4   colorMatrixRow2;
 };
 
 struct VS_INPUT {
@@ -51,6 +54,13 @@ VS_OUTPUT VSMain(VS_INPUT input) {
 
 float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     float4 hdr = imageTexture.Sample(imageSampler, input.uv);
+
+    // Color space conversion (source primaries -> Rec. 709)
+    float3 converted;
+    converted.r = dot(colorMatrixRow0.xyz, hdr.rgb);
+    converted.g = dot(colorMatrixRow1.xyz, hdr.rgb);
+    converted.b = dot(colorMatrixRow2.xyz, hdr.rgb);
+    hdr.rgb = converted;
 
     // Solo channel modes: extract single channel as grayscale
     // displayMode: 0=normal(+alpha), 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)

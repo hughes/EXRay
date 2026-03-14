@@ -3,8 +3,10 @@
 #include "thumbnail_provider.h"
 
 #include <ImfArray.h>
+#include <ImfChromaticities.h>
 #include <ImfIO.h>
 #include <ImfRgbaFile.h>
+#include <ImfStandardAttributes.h>
 
 #include <algorithm>
 #include <cmath>
@@ -133,6 +135,32 @@ IFACEMETHODIMP EXRayThumbnailProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS
     {
         ComStreamAdapter adapter(m_pStream);
         Imf::RgbaInputFile file(adapter);
+
+        // Compute color matrix for chromaticity conversion
+        static const Imf::Chromaticities kRec709; // default is Rec. 709
+        float colorMtx[9] = {1, 0, 0, 0, 1, 0, 0, 0, 1};
+        bool hasColorMatrix = false;
+        if (Imf::hasChromaticities(file.header()))
+        {
+            Imf::Chromaticities src = Imf::chromaticities(file.header());
+            auto close = [](const Imath::V2f& a, const Imath::V2f& b)
+            { return std::fabs(a.x - b.x) < 1e-4f && std::fabs(a.y - b.y) < 1e-4f; };
+            if (!(close(src.red, kRec709.red) && close(src.green, kRec709.green) && close(src.blue, kRec709.blue) &&
+                  close(src.white, kRec709.white)))
+            {
+                Imath::M44f srcM = Imf::RGBtoXYZ(src, 1.0f);
+                Imath::M44f dstM = Imf::RGBtoXYZ(kRec709, 1.0f);
+                Imath::M44f dstInv = dstM.inverse();
+                // Imath uses row-vector convention (v*M), but we apply as M*v (column-vector),
+                // so we need: combo = (src * dstInv), then transpose during extraction.
+                Imath::M44f combo = srcM * dstInv;
+                for (int r = 0; r < 3; r++)
+                    for (int c = 0; c < 3; c++)
+                        colorMtx[r * 3 + c] = combo[c][r]; // transpose
+                hasColorMatrix = true;
+            }
+        }
+
         Imath::Box2i dw = file.dataWindow();
 
         int imgW = dw.max.x - dw.min.x + 1;
@@ -198,10 +226,25 @@ IFACEMETHODIMP EXRayThumbnailProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS
                 int srcX = std::clamp(static_cast<int>((x + 0.5f) * scaleX), 0, imgW - 1);
                 const Imf::Rgba& px = rowBuf[srcX];
 
-                float rf = (std::max)(0.0f, static_cast<float>(px.r));
-                float gf = (std::max)(0.0f, static_cast<float>(px.g));
-                float bf = (std::max)(0.0f, static_cast<float>(px.b));
+                float rf = static_cast<float>(px.r);
+                float gf = static_cast<float>(px.g);
+                float bf = static_cast<float>(px.b);
                 float af = std::clamp(static_cast<float>(px.a), 0.0f, 1.0f);
+
+                // Apply chromaticity conversion before tone mapping
+                if (hasColorMatrix)
+                {
+                    float r2 = colorMtx[0] * rf + colorMtx[1] * gf + colorMtx[2] * bf;
+                    float g2 = colorMtx[3] * rf + colorMtx[4] * gf + colorMtx[5] * bf;
+                    float b2 = colorMtx[6] * rf + colorMtx[7] * gf + colorMtx[8] * bf;
+                    rf = r2;
+                    gf = g2;
+                    bf = b2;
+                }
+
+                rf = (std::max)(0.0f, rf);
+                gf = (std::max)(0.0f, gf);
+                bf = (std::max)(0.0f, bf);
 
                 // Reinhard tone mapping
                 rf = rf / (1.0f + rf);

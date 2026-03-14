@@ -8,14 +8,17 @@
 
 #include <ImfArray.h>
 #include <ImfChannelList.h>
+#include <ImfChromaticities.h>
 #include <ImfFrameBuffer.h>
 #include <ImfHeader.h>
 #include <ImfInputPart.h>
 #include <ImfMultiPartInputFile.h>
 #include <ImfRgbaFile.h>
+#include <ImfStandardAttributes.h>
 #include <ImfTileDescription.h>
 #include <ImfTiledInputPart.h>
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <windows.h>
 
@@ -33,6 +36,193 @@ static std::string WideToUtf8(const std::wstring& wide)
 // Reject images that would require more than 2 GB of pixel data.
 // This catches corrupt headers before we attempt a massive allocation.
 static constexpr size_t kMaxPixelBytes = size_t(2) * 1024 * 1024 * 1024;
+
+// --- Chromaticity → Rec. 709 color matrix computation ---
+
+// Rec. 709 / sRGB primaries and D65 white point
+static const Imf::Chromaticities kRec709;
+
+static bool ChromaticitiesMatch(const Imf::Chromaticities& a, const Imf::Chromaticities& b, float eps = 1e-4f)
+{
+    auto close = [eps](const Imath::V2f& u, const Imath::V2f& v)
+    { return std::fabs(u.x - v.x) < eps && std::fabs(u.y - v.y) < eps; };
+    return close(a.red, b.red) && close(a.green, b.green) && close(a.blue, b.blue) && close(a.white, b.white);
+}
+
+// Invert a 3x3 matrix (row-major). Returns false if singular.
+static bool Invert3x3(const float m[9], float inv[9])
+{
+    float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) +
+                m[2] * (m[3] * m[7] - m[4] * m[6]);
+    if (std::fabs(det) < 1e-12f)
+        return false;
+    float id = 1.0f / det;
+    inv[0] = (m[4] * m[8] - m[5] * m[7]) * id;
+    inv[1] = (m[2] * m[7] - m[1] * m[8]) * id;
+    inv[2] = (m[1] * m[5] - m[2] * m[4]) * id;
+    inv[3] = (m[5] * m[6] - m[3] * m[8]) * id;
+    inv[4] = (m[0] * m[8] - m[2] * m[6]) * id;
+    inv[5] = (m[2] * m[3] - m[0] * m[5]) * id;
+    inv[6] = (m[3] * m[7] - m[4] * m[6]) * id;
+    inv[7] = (m[1] * m[6] - m[0] * m[7]) * id;
+    inv[8] = (m[0] * m[4] - m[1] * m[3]) * id;
+    return true;
+}
+
+// Multiply two 3x3 row-major matrices: out = A * B
+static void Mul3x3(const float a[9], const float b[9], float out[9])
+{
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            out[r * 3 + c] = a[r * 3 + 0] * b[0 * 3 + c] + a[r * 3 + 1] * b[1 * 3 + c] +
+                              a[r * 3 + 2] * b[2 * 3 + c];
+}
+
+// Extract the upper-left 3x3 from an Imath::M44f and transpose it.
+// Imath uses row-vector convention (v * M); we need column-vector (M * v)
+// for the HLSL shader, so we transpose during extraction.
+static void ExtractM33Transposed(const Imath::M44f& m, float out[9])
+{
+    for (int r = 0; r < 3; r++)
+        for (int c = 0; c < 3; c++)
+            out[r * 3 + c] = m[c][r];
+}
+
+// Bradford chromatic adaptation matrix
+static constexpr float kBradford[9] = {0.8951f, 0.2664f, -0.1614f, -0.7502f, 1.7135f,
+                                        0.0367f, 0.0389f, -0.0685f, 1.0296f};
+static constexpr float kBradfordInv[9] = {0.9870f, -0.1471f, 0.1600f, 0.4323f, 0.5184f,
+                                           0.0493f, -0.0085f, 0.0400f, 0.9685f};
+
+// Compute Bradford chromatic adaptation from source white XYZ to dest white XYZ
+static void BradfordAdaptation(const float srcWhiteXYZ[3], const float dstWhiteXYZ[3], float out[9])
+{
+    // Cone response for source and dest
+    float srcCone[3], dstCone[3];
+    for (int i = 0; i < 3; i++)
+    {
+        srcCone[i] = kBradford[i * 3 + 0] * srcWhiteXYZ[0] + kBradford[i * 3 + 1] * srcWhiteXYZ[1] +
+                     kBradford[i * 3 + 2] * srcWhiteXYZ[2];
+        dstCone[i] = kBradford[i * 3 + 0] * dstWhiteXYZ[0] + kBradford[i * 3 + 1] * dstWhiteXYZ[1] +
+                     kBradford[i * 3 + 2] * dstWhiteXYZ[2];
+    }
+
+    // Diagonal scaling in cone space
+    float scale[9] = {};
+    for (int i = 0; i < 3; i++)
+        scale[i * 3 + i] = (std::fabs(srcCone[i]) > 1e-10f) ? dstCone[i] / srcCone[i] : 1.0f;
+
+    // M_adapt = BradfordInv * Scale * Bradford
+    float tmp[9];
+    Mul3x3(scale, kBradford, tmp);
+    Mul3x3(kBradfordInv, tmp, out);
+}
+
+// CIE xy → XYZ (Y=1)
+static void WhiteXYZ(const Imath::V2f& white, float xyz[3])
+{
+    xyz[0] = white.x / white.y;
+    xyz[1] = 1.0f;
+    xyz[2] = (1.0f - white.x - white.y) / white.y;
+}
+
+// Identify well-known chromaticity sets by their primaries
+static std::string IdentifyColorSpace(const Imf::Chromaticities& c)
+{
+    // ACEScg (AP1)
+    Imf::Chromaticities ap1;
+    ap1.red = {0.713f, 0.293f};
+    ap1.green = {0.165f, 0.830f};
+    ap1.blue = {0.128f, 0.044f};
+    ap1.white = {0.32168f, 0.33767f};
+    if (ChromaticitiesMatch(c, ap1, 5e-3f))
+        return "ACEScg";
+
+    // ACES 2065-1 (AP0)
+    Imf::Chromaticities ap0;
+    ap0.red = {0.7347f, 0.2653f};
+    ap0.green = {0.0f, 1.0f};
+    ap0.blue = {0.0001f, -0.077f};
+    ap0.white = {0.32168f, 0.33767f};
+    if (ChromaticitiesMatch(c, ap0, 5e-3f))
+        return "ACES AP0";
+
+    // DCI-P3 (D65)
+    Imf::Chromaticities p3;
+    p3.red = {0.680f, 0.320f};
+    p3.green = {0.265f, 0.690f};
+    p3.blue = {0.150f, 0.060f};
+    p3.white = {0.3127f, 0.3290f};
+    if (ChromaticitiesMatch(c, p3, 5e-3f))
+        return "DCI-P3";
+
+    return "Wide Gamut";
+}
+
+// Compute a 3x3 color matrix to convert from the file's chromaticities to Rec. 709.
+// Stores identity if no conversion is needed. Sets outName to the identified color space.
+static void ComputeColorMatrix(const Imf::Header& header, float outMatrix[9], std::string& outName)
+{
+    // Default to identity
+    outMatrix[0] = 1;
+    outMatrix[1] = 0;
+    outMatrix[2] = 0;
+    outMatrix[3] = 0;
+    outMatrix[4] = 1;
+    outMatrix[5] = 0;
+    outMatrix[6] = 0;
+    outMatrix[7] = 0;
+    outMatrix[8] = 1;
+    outName.clear();
+
+    if (!Imf::hasChromaticities(header))
+        return;
+
+    Imf::Chromaticities src = Imf::chromaticities(header);
+
+    if (ChromaticitiesMatch(src, kRec709))
+        return;
+
+    outName = IdentifyColorSpace(src);
+
+    // Source RGB → XYZ matrix (from OpenEXR)
+    Imath::M44f srcToXYZ44 = Imf::RGBtoXYZ(src, 1.0f);
+    float srcToXYZ[9];
+    ExtractM33Transposed(srcToXYZ44, srcToXYZ);
+
+    // Rec. 709 RGB → XYZ matrix, then invert to get XYZ → Rec. 709
+    Imath::M44f rec709ToXYZ44 = Imf::RGBtoXYZ(kRec709, 1.0f);
+    float rec709ToXYZ[9];
+    ExtractM33Transposed(rec709ToXYZ44, rec709ToXYZ);
+
+    float xyzToRec709[9];
+    if (!Invert3x3(rec709ToXYZ, xyzToRec709))
+        return; // shouldn't happen, but fall back to identity
+
+    // Check if white points differ — apply Bradford chromatic adaptation
+    float srcWhite[3], dstWhite[3];
+    WhiteXYZ(src.white, srcWhite);
+    WhiteXYZ(kRec709.white, dstWhite);
+
+    bool whitePointsDiffer = std::fabs(srcWhite[0] - dstWhite[0]) > 1e-4f ||
+                             std::fabs(srcWhite[2] - dstWhite[2]) > 1e-4f;
+
+    if (whitePointsDiffer)
+    {
+        float adapt[9];
+        BradfordAdaptation(srcWhite, dstWhite, adapt);
+
+        // Final = XYZtoRec709 * Adapt * SrcToXYZ
+        float tmp[9];
+        Mul3x3(adapt, srcToXYZ, tmp);
+        Mul3x3(xyzToRec709, tmp, outMatrix);
+    }
+    else
+    {
+        // Final = XYZtoRec709 * SrcToXYZ
+        Mul3x3(xyzToRec709, srcToXYZ, outMatrix);
+    }
+}
 
 bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std::string& errorMsg)
 {
@@ -85,6 +275,8 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
             }
         }
         outImage.alphaAllZero = allZeroAlpha;
+
+        ComputeColorMatrix(file.header(), outImage.colorMatrix, outImage.colorSpace);
 
         return true;
     }
@@ -392,6 +584,8 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             allZeroAlpha = allZeroAlpha && (outImage.pixels[i + 3] == 0.0f);
         }
         outImage.alphaAllZero = allZeroAlpha;
+
+        ComputeColorMatrix(header, outImage.colorMatrix, outImage.colorSpace);
 
         return true;
     }

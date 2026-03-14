@@ -477,6 +477,14 @@ int App::Run()
     }
 }
 
+// Pack a row-major 3x3 matrix into the padded float4x3 layout for HLSL
+static void PackColorMatrix(const float src[9], float dst[12])
+{
+    dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = 0.0f;
+    dst[4] = src[3]; dst[5] = src[4]; dst[6] = src[5]; dst[7] = 0.0f;
+    dst[8] = src[6]; dst[9] = src[7]; dst[10] = src[8]; dst[11] = 0.0f;
+}
+
 void App::Render()
 {
     m_renderer.BeginFrame(0.18f, 0.18f, 0.18f);
@@ -486,6 +494,7 @@ void App::Render()
         ViewportCB vp = m_viewport.ToViewportCB();
         vp.showGrid = m_showGrid ? 1 : 0;
         vp.displayMode = m_displayMode;
+        PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
         m_renderer.RenderImage(vp);
     }
 
@@ -697,6 +706,7 @@ void App::OnResize(int width, int height)
             ViewportCB vp = m_viewport.ToViewportCB();
             vp.showGrid = m_showGrid ? 1 : 0;
             vp.displayMode = m_displayMode;
+            PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
             m_renderer.RenderImage(vp);
         }
         m_renderer.EndFrame(false);
@@ -1059,7 +1069,7 @@ void App::UpdateImageStatusText()
     if (!m_image.IsLoaded())
         return;
 
-    wchar_t infoBuf[192];
+    wchar_t infoBuf[256];
     if (m_viewport.isHDR)
     {
         swprintf_s(infoBuf, L" %d x %d | EV %+.2f | HDR @ %.0f nits", m_image.width, m_image.height,
@@ -1071,6 +1081,16 @@ void App::UpdateImageStatusText()
         swprintf_s(infoBuf, L" %d x %d | EV %+.2f | SDR | Gamma %.1f", m_image.width, m_image.height,
                    m_viewport.exposure, displayGamma);
     }
+
+    // Append color space name when source primaries differ from Rec. 709
+    if (!m_image.colorSpace.empty())
+    {
+        wchar_t csName[64];
+        MultiByteToWideChar(CP_UTF8, 0, m_image.colorSpace.c_str(), -1, csName, 64);
+        wcscat_s(infoBuf, L" | ");
+        wcscat_s(infoBuf, csName);
+    }
+
     m_window.SetStatusText(2, infoBuf);
 }
 
