@@ -70,6 +70,7 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
         outImage.height = height;
         outImage.pixels.resize(static_cast<size_t>(width) * height * 4);
 
+        bool allZeroAlpha = true;
         for (int y = 0; y < height; ++y)
         {
             for (int x = 0; x < width; ++x)
@@ -80,8 +81,10 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
                 dst[1] = static_cast<float>(src.g);
                 dst[2] = static_cast<float>(src.b);
                 dst[3] = static_cast<float>(src.a);
+                allZeroAlpha = allZeroAlpha && (dst[3] == 0.0f);
             }
         }
+        outImage.alphaAllZero = allZeroAlpha;
 
         return true;
     }
@@ -377,15 +380,18 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             part.readPixels(dw.min.y, dw.max.y);
         }
 
-        // For grayscale, copy R to G and B
-        if (grayscale)
+        // For grayscale, copy R to G and B; detect all-zero alpha in the same pass
+        bool allZeroAlpha = true;
+        for (size_t i = 0; i < outImage.pixels.size(); i += 4)
         {
-            for (size_t i = 0; i < outImage.pixels.size(); i += 4)
+            if (grayscale)
             {
                 outImage.pixels[i + 1] = outImage.pixels[i + 0];
                 outImage.pixels[i + 2] = outImage.pixels[i + 0];
             }
+            allZeroAlpha = allZeroAlpha && (outImage.pixels[i + 3] == 0.0f);
         }
+        outImage.alphaAllZero = allZeroAlpha;
 
         return true;
     }

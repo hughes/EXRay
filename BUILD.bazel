@@ -47,6 +47,7 @@ cc_binary(
         "src/validate.cpp",
         "src/benchmark.h",
         "src/benchmark.cpp",
+        "src/display_mode.h",
         "src/test_util.h",
         "src/viewport.h",
         "src/viewport.cpp",
@@ -136,4 +137,14 @@ cc_test(
     linkopts = [
         "-DEFAULTLIB:winhttp.lib",
     ],
+)
+
+cc_test(
+    name = "display_mode_test",
+    srcs = [
+        "tests/display_mode_test.cpp",
+        "src/display_mode.h",
+        "src/image.h",
+    ],
+    includes = ["src"],
 )

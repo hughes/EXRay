@@ -53,7 +53,7 @@ float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     float4 hdr = imageTexture.Sample(imageSampler, input.uv);
 
     // Solo channel modes: extract single channel as grayscale
-    // displayMode: 0=normal, 1=R, 2=G, 3=B, 4=A
+    // displayMode: 0=normal(+alpha), 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)
     float3 exposed;
     if (displayMode >= 1 && displayMode <= 4) {
         float ch = (displayMode == 1) ? hdr.r :
@@ -72,7 +72,7 @@ float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     }
 
     // Checkerboard transparency — blend image over checker pattern using alpha
-    // Only in normal RGB mode (not solo channel modes)
+    // Only in normal RGB+alpha mode (displayMode 0), not solo channels or ignore-alpha
     if (displayMode == 0) {
         uint texW, texH;
         imageTexture.GetDimensions(texW, texH);

@@ -10,16 +10,19 @@ struct ImageData
 {
     int width = 0;
     int height = 0;
+    bool alphaAllZero = false; // true if every alpha sample was exactly 0
     std::vector<float> pixels; // RGBA interleaved, width*height*4 floats
 
     ImageData() = default;
     ImageData(const ImageData&) = default;
     ImageData& operator=(const ImageData&) = default;
 
-    ImageData(ImageData&& o) noexcept : width(o.width), height(o.height), pixels(std::move(o.pixels))
+    ImageData(ImageData&& o) noexcept
+        : width(o.width), height(o.height), alphaAllZero(o.alphaAllZero), pixels(std::move(o.pixels))
     {
         o.width = 0;
         o.height = 0;
+        o.alphaAllZero = false;
     }
 
     ImageData& operator=(ImageData&& o) noexcept
@@ -28,9 +31,11 @@ struct ImageData
         {
             width = o.width;
             height = o.height;
+            alphaAllZero = o.alphaAllZero;
             pixels = std::move(o.pixels);
             o.width = 0;
             o.height = 0;
+            o.alphaAllZero = false;
         }
         return *this;
     }
