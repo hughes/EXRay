@@ -54,8 +54,8 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Pan | Click-drag · middle mouse drag · touch drag |
 | Exposure ±0.25 EV | `Shift+Scroll` · horizontal scroll · `+` / `-` |
 | Gamma ±0.05 (SDR) | `]` / `[` |
-| Toggle histogram | `H` |
 | Cycle histogram channel | `C` |
+| Channel display mode | Shift plus: `~` RGB · `1` R · `2` G · `3` B · `4` A · `5` No-alpha |
 | Toggle pixel grid | `G` |
 | Toggle fullscreen | `F11` |
 | Exit fullscreen | `Esc` |
