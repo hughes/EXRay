@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.3.0 - 2026-03-14
+
+- Sidebar with layer hierarchy and channel controls
+- Multi-layer EXR support (view and switch between layers/parts)
+- Mipmap level viewing
+- Multi-channel and single-channel inspection modes
+- "No alpha" display mode with auto-detection for images that need it
+- Chromaticities premultiplication for correct color rendering
+- Middle-click to close tabs
+- GUI theming system with improved DPI scaling
+- Reworked histogram channel buttons and color summation
+- Adjusted scroll zoom and exposure behavior
+
 ## 0.2.0 - 2026-03-07
 
 - Add Windows Explorer thumbnail previews for EXR files (shell extension DLL)
