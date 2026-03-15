@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.3.2 - 2026-03-14
+
+- Fix XYZ channel identification
+- Remove tab preloading for simpler tab lifecycle
+- Code formatting standardization
+
 ## 0.3.1 - 2026-03-14
 
 - Fix Help menu text rendering as black-on-dark in dark mode when update is available

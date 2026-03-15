@@ -7,7 +7,7 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 ## Features
 
 - **Tiny footprint** - Fits on a floppy disk
-- **Instant loading** - D3D11 hardware-accelerated rendering with background preload for adjacent tabs
+- **Instant loading** - D3D11 hardware-accelerated rendering
 - **HDR display support** - auto-detects HDR-capable monitors and outputs scRGB linear
 - **Exposure & gamma control** - adjust EV stops and gamma with real-time controls
 - **Sidebar** - layer browser, histogram, and exposure/gamma controls
