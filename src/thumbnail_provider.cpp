@@ -199,6 +199,47 @@ IFACEMETHODIMP EXRayThumbnailProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS
 
         int lastReadY = -1; // track which scanline is in the buffer
 
+        // First pass: check if alpha is useful by sampling the scanlines
+        // we'll actually use for the thumbnail. An all-zero or all-one
+        // alpha channel means we should treat the image as opaque.
+        bool alphaIsUseful = false;
+        {
+            bool hasNonZero = false;
+            bool hasNonOne = false;
+            for (UINT y = 0; y < thumbH && !alphaIsUseful; ++y)
+            {
+                int srcY = std::clamp(static_cast<int>((y + 0.5f) * scaleY), 0, imgH - 1);
+                int absY = srcY + dw.min.y;
+
+                if (srcY != lastReadY)
+                {
+                    file.setFrameBuffer(rowBuf.data() - dw.min.x - static_cast<int64_t>(absY) * imgW, 1, imgW);
+                    file.readPixels(absY, absY);
+                    lastReadY = srcY;
+                }
+
+                for (UINT x = 0; x < thumbW; ++x)
+                {
+                    int srcX = std::clamp(static_cast<int>((x + 0.5f) * scaleX), 0, imgW - 1);
+                    float af = static_cast<float>(rowBuf[srcX].a);
+                    if (af != 0.0f)
+                        hasNonZero = true;
+                    if (af < 1.0f)
+                        hasNonOne = true;
+                    if (hasNonZero && hasNonOne)
+                    {
+                        alphaIsUseful = true;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if (!alphaIsUseful)
+            *pdwAlpha = WTSAT_RGB;
+
+        lastReadY = -1; // reset for the rendering pass
+
         for (UINT y = 0; y < thumbH; ++y)
         {
             int srcY = std::clamp(static_cast<int>((y + 0.5f) * scaleY), 0, imgH - 1);
@@ -220,7 +261,7 @@ IFACEMETHODIMP EXRayThumbnailProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS
                 float rf = static_cast<float>(px.r);
                 float gf = static_cast<float>(px.g);
                 float bf = static_cast<float>(px.b);
-                float af = std::clamp(static_cast<float>(px.a), 0.0f, 1.0f);
+                float af = alphaIsUseful ? std::clamp(static_cast<float>(px.a), 0.0f, 1.0f) : 1.0f;
 
                 // Apply chromaticity conversion before tone mapping
                 if (hasColorMatrix)

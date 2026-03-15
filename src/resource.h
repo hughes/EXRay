@@ -2,6 +2,11 @@
 
 #pragma once
 
+// RC SDK constants (rc.exe runs without Windows SDK includes in Bazel)
+#ifndef VS_VERSION_INFO
+#define VS_VERSION_INFO 1
+#endif
+
 // Version info — single source of truth for VERSIONINFO + About dialog
 #define EXRAY_VERSION_MAJOR 0
 #define EXRAY_VERSION_MINOR 3
