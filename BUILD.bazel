@@ -98,9 +98,21 @@ cc_library(
     ],
 )
 
+genrule(
+    name = "thumb_resources",
+    srcs = [
+        "resources/thumbnail.rc",
+        "src/resource.h",
+    ],
+    tools = ["tools/find_rc.bat"],
+    outs = ["thumbnail.res"],
+    cmd_bat = "$(location tools/find_rc.bat) /nologo /I . /fo $@ $(location resources/thumbnail.rc)",
+)
+
 cc_binary(
     name = "EXRayThumb.dll",
     srcs = ["src/thumbnail_dll.cpp"],
+    additional_linker_inputs = [":thumb_resources"],
     includes = ["src"],
     linkshared = True,
     win_def_file = "src/thumbnail_provider.def",
@@ -109,6 +121,7 @@ cc_binary(
         "-DEFAULTLIB:shell32.lib",
         "-DEFAULTLIB:advapi32.lib",
         "-DEFAULTLIB:shlwapi.lib",
+        "$(location :thumb_resources)",
     ],
 )
 

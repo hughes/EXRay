@@ -133,7 +133,7 @@ TEST(GetThumbnail_basic)
 
     EXPECT(hr == S_OK);
     EXPECT(hbmp != nullptr);
-    EXPECT(alpha == WTSAT_ARGB);
+    EXPECT(alpha == WTSAT_RGB); // uniform alpha (all 1.0) → treated as opaque
 
     if (hbmp)
     {
@@ -257,6 +257,31 @@ TEST(GetThumbnail_dark_values)
         BGRA px = ReadPixel(hbmp, 0, 0);
         // Reinhard(0.01) ~ 0.0099, gamma ~ 0.125, * 255 ~ 32
         EXPECT(px.r > 20 && px.r < 50);
+        DeleteObject(hbmp);
+    }
+
+    prov->Release();
+    DeleteTestEXR(path);
+}
+
+TEST(GetThumbnail_zero_alpha_treated_as_opaque)
+{
+    // Images with all-zero alpha should produce visible thumbnails, not blank ones
+    std::wstring path = CreateTestEXR(4, 4, 1.0f, 0.0f, 0.0f, 0.0f);
+    IThumbnailProvider* prov = MakeProvider(path);
+
+    HBITMAP hbmp = nullptr;
+    WTS_ALPHATYPE alpha = WTSAT_UNKNOWN;
+    HRESULT hr = prov->GetThumbnail(4, &hbmp, &alpha);
+
+    EXPECT(hr == S_OK);
+    EXPECT(alpha == WTSAT_RGB);
+
+    if (hbmp)
+    {
+        BGRA px = ReadPixel(hbmp, 0, 0);
+        EXPECT(px.r > 100); // should be visible red, not blank
+        EXPECT(px.a == 255);
         DeleteObject(hbmp);
     }
 
