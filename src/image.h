@@ -79,12 +79,12 @@ struct ExrFileInfo
 // Result of mapping layer channel names to RGBA display slots
 struct ChannelMapping
 {
-    std::string rChannel; // channel name mapped to red (empty = none)
-    std::string gChannel; // channel name mapped to green
-    std::string bChannel; // channel name mapped to blue
-    std::string aChannel; // channel name mapped to alpha
-    bool grayscale = false;       // true if single channel displayed as gray
-    std::string soloChannel;      // channel name used for grayscale
+    std::string rChannel;    // channel name mapped to red (empty = none)
+    std::string gChannel;    // channel name mapped to green
+    std::string bChannel;    // channel name mapped to blue
+    std::string aChannel;    // channel name mapped to alpha
+    bool grayscale = false;  // true if single channel displayed as gray
+    std::string soloChannel; // channel name used for grayscale
 };
 
 // Map a layer's channel names to RGBA display slots.

@@ -1,6 +1,9 @@
 // SPDX-License-Identifier: GPL-3.0-or-later
 
-#include <initguid.h>
+// clang-format off
+#include <initguid.h>  // must precede thumbnail_provider.h to define (not just declare) the GUID
+// clang-format on
+
 #include "thumbnail_provider.h"
 
 #include <strsafe.h>
@@ -34,10 +37,7 @@ STDAPI DllGetClassObject(REFCLSID clsid, REFIID riid, void** ppv)
     return factory.QueryInterface(riid, ppv);
 }
 
-STDAPI DllCanUnloadNow()
-{
-    return g_dllRefCount == 0 ? S_OK : S_FALSE;
-}
+STDAPI DllCanUnloadNow() { return g_dllRefCount == 0 ? S_OK : S_FALSE; }
 
 // Registry helpers
 
@@ -53,10 +53,7 @@ static HRESULT SetRegValue(HKEY root, const wchar_t* subKey, const wchar_t* name
     return HRESULT_FROM_WIN32(rc);
 }
 
-static void DeleteRegTree(HKEY root, const wchar_t* subKey)
-{
-    RegDeleteTreeW(root, subKey);
-}
+static void DeleteRegTree(HKEY root, const wchar_t* subKey) { RegDeleteTreeW(root, subKey); }
 
 STDAPI DllRegisterServer()
 {

@@ -471,9 +471,18 @@ int App::Run()
 // Pack a row-major 3x3 matrix into the padded float4x3 layout for HLSL
 static void PackColorMatrix(const float src[9], float dst[12])
 {
-    dst[0] = src[0]; dst[1] = src[1]; dst[2] = src[2]; dst[3] = 0.0f;
-    dst[4] = src[3]; dst[5] = src[4]; dst[6] = src[5]; dst[7] = 0.0f;
-    dst[8] = src[6]; dst[9] = src[7]; dst[10] = src[8]; dst[11] = 0.0f;
+    dst[0] = src[0];
+    dst[1] = src[1];
+    dst[2] = src[2];
+    dst[3] = 0.0f;
+    dst[4] = src[3];
+    dst[5] = src[4];
+    dst[6] = src[5];
+    dst[7] = 0.0f;
+    dst[8] = src[6];
+    dst[9] = src[7];
+    dst[10] = src[8];
+    dst[11] = 0.0f;
 }
 
 void App::Render()
@@ -951,8 +960,6 @@ void App::SaveTabState()
         }
     }
 }
-
-
 
 void App::UpdateImageStatusText()
 {
