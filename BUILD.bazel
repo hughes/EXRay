@@ -148,3 +148,10 @@ cc_test(
     ],
     includes = ["src"],
 )
+
+cc_test(
+    name = "channel_mapping_test",
+    srcs = ["tests/channel_mapping_test.cpp"],
+    includes = ["src"],
+    deps = [":image_lib"],
+)

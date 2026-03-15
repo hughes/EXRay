@@ -448,6 +448,40 @@ static std::string FindChannel(const std::vector<std::string>& channels, const s
     return {};
 }
 
+ChannelMapping MapChannelsToRGBA(const std::vector<std::string>& channels)
+{
+    ChannelMapping m;
+
+    // Try RGB names first
+    m.rChannel = FindChannel(channels, {"R", "r", "red", "Red"});
+    m.gChannel = FindChannel(channels, {"G", "g", "green", "Green"});
+    m.bChannel = FindChannel(channels, {"B", "b", "blue", "Blue"});
+    m.aChannel = FindChannel(channels, {"A", "a", "alpha", "Alpha"});
+
+    // Fall back to XYZ mapping only if all three are present
+    if (m.rChannel.empty() && m.gChannel.empty() && m.bChannel.empty())
+    {
+        std::string xName = FindChannel(channels, {"X", "x"});
+        std::string yName = FindChannel(channels, {"Y", "y"});
+        std::string zName = FindChannel(channels, {"Z", "z"});
+        if (!xName.empty() && !yName.empty() && !zName.empty())
+        {
+            m.rChannel = xName;
+            m.gChannel = yName;
+            m.bChannel = zName;
+        }
+    }
+
+    // If no RGB or XYZ mapping, display as grayscale
+    if (m.rChannel.empty() && m.gChannel.empty() && m.bChannel.empty() && !channels.empty())
+    {
+        m.grayscale = true;
+        m.soloChannel = channels[0];
+    }
+
+    return m;
+}
+
 bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& layer, ImageData& outImage,
                                std::string& errorMsg)
 {
@@ -497,29 +531,13 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
 
         // Figure out which channels map to RGBA
         std::string prefix = layer.name.empty() ? "" : (layer.name + ".");
-
-        // Try to map channels to RGBA display
-        std::string rName = FindChannel(layer.channels, {"R", "r", "red", "Red", "x", "X"});
-        std::string gName = FindChannel(layer.channels, {"G", "g", "green", "Green", "y", "Y"});
-        std::string bName = FindChannel(layer.channels, {"B", "b", "blue", "Blue", "z", "Z"});
-        std::string aName = FindChannel(layer.channels, {"A", "a", "alpha", "Alpha"});
-
-        // If only 1 channel, display as grayscale
-        bool grayscale = false;
-        std::string soloChannel;
-        if (rName.empty() && gName.empty() && bName.empty())
-        {
-            if (layer.channels.size() == 1)
-            {
-                grayscale = true;
-                soloChannel = layer.channels[0];
-            }
-            else if (!layer.channels.empty())
-            {
-                grayscale = true;
-                soloChannel = layer.channels[0];
-            }
-        }
+        ChannelMapping cm = MapChannelsToRGBA(layer.channels);
+        std::string rName = cm.rChannel;
+        std::string gName = cm.gChannel;
+        std::string bName = cm.bChannel;
+        std::string aName = cm.aChannel;
+        bool grayscale = cm.grayscale;
+        std::string soloChannel = cm.soloChannel;
 
         outImage.width = width;
         outImage.height = height;
