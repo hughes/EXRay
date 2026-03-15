@@ -38,10 +38,7 @@ class App
     void CloseCurrentTab();
     void CloseTabAtIndex(int index);
     void SaveTabState();
-    void StartPreload();
-    void FinishPreload();
     void StartUpdateCheck();
-    void EvictDistantTabs();
     void Render();
     void UpdateImageStatusText();
     void SyncSidebar();
@@ -105,13 +102,6 @@ class App
     ImageData m_pendingImage;
     std::string m_loadError;
     std::atomic<bool> m_loadComplete{false};
-
-    // Adjacent-tab preload state
-    std::thread m_preloadThread;
-    int m_preloadIndex = -1;
-    ImageData m_preloadImage;
-    HistogramData m_preloadHistogram;
-    std::atomic<bool> m_preloadComplete{false};
 
     // Update check state
     std::thread m_updateThread;
