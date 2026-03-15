@@ -49,9 +49,7 @@ static double Median(std::vector<double> v)
     return (v[n / 2 - 1] + v[n / 2]) / 2.0;
 }
 
-static BenchmarkResult BenchmarkOne(const fs::path& file,
-                                    const fs::path& baseDir,
-                                    int iterations)
+static BenchmarkResult BenchmarkOne(const fs::path& file, const fs::path& baseDir, int iterations)
 {
     BenchmarkResult r;
     r.relativePath = fs::relative(file, baseDir);
@@ -84,8 +82,7 @@ static BenchmarkResult BenchmarkOne(const fs::path& file,
         bool ok = ImageLoader::LoadEXR(file.wstring(), image, errorMsg);
         auto t1 = std::chrono::steady_clock::now();
 
-        r.loadSamples.push_back(
-            std::chrono::duration<double, std::milli>(t1 - t0).count());
+        r.loadSamples.push_back(std::chrono::duration<double, std::milli>(t1 - t0).count());
 
         if (ok)
         {
@@ -93,8 +90,7 @@ static BenchmarkResult BenchmarkOne(const fs::path& file,
             HistogramComputer::Compute(image);
             auto h1 = std::chrono::steady_clock::now();
 
-            r.histSamples.push_back(
-                std::chrono::duration<double, std::milli>(h1 - h0).count());
+            r.histSamples.push_back(std::chrono::duration<double, std::milli>(h1 - h0).count());
         }
     }
 
@@ -117,20 +113,30 @@ static std::string JsonEscape(const std::string& s)
     {
         switch (c)
         {
-        case '"': out += "\\\""; break;
-        case '\\': out += "\\\\"; break;
-        case '\n': out += "\\n"; break;
-        case '\r': out += "\\r"; break;
-        case '\t': out += "\\t"; break;
-        default: out += c; break;
+        case '"':
+            out += "\\\"";
+            break;
+        case '\\':
+            out += "\\\\";
+            break;
+        case '\n':
+            out += "\\n";
+            break;
+        case '\r':
+            out += "\\r";
+            break;
+        case '\t':
+            out += "\\t";
+            break;
+        default:
+            out += c;
+            break;
         }
     }
     return out;
 }
 
-static void WriteJsonResults(FILE* out,
-                             const std::vector<BenchmarkResult>& results,
-                             int iterations)
+static void WriteJsonResults(FILE* out, const std::vector<BenchmarkResult>& results, int iterations)
 {
     double totalMegapixels = 0.0;
     double totalLoadMs = 0.0;
@@ -146,8 +152,7 @@ static void WriteJsonResults(FILE* out,
     {
         const auto& r = results[i];
         fprintf(out, "    {\n");
-        fprintf(out, "      \"path\": \"%s\",\n",
-                JsonEscape(r.relativePath.string()).c_str());
+        fprintf(out, "      \"path\": \"%s\",\n", JsonEscape(r.relativePath.string()).c_str());
 
         if (r.loaded)
         {
@@ -166,8 +171,7 @@ static void WriteJsonResults(FILE* out,
         }
         else
         {
-            fprintf(out, "      \"error\": \"%s\"\n",
-                    JsonEscape(r.error).c_str());
+            fprintf(out, "      \"error\": \"%s\"\n", JsonEscape(r.error).c_str());
         }
 
         fprintf(out, "    }%s\n", (i + 1 < results.size()) ? "," : "");
@@ -175,10 +179,8 @@ static void WriteJsonResults(FILE* out,
 
     fprintf(out, "  ],\n");
 
-    double loadMpxPerSec =
-        (totalLoadMs > 0.0) ? totalMegapixels / (totalLoadMs / 1000.0) : 0.0;
-    double histMpxPerSec =
-        (totalHistMs > 0.0) ? totalMegapixels / (totalHistMs / 1000.0) : 0.0;
+    double loadMpxPerSec = (totalLoadMs > 0.0) ? totalMegapixels / (totalLoadMs / 1000.0) : 0.0;
+    double histMpxPerSec = (totalHistMs > 0.0) ? totalMegapixels / (totalHistMs / 1000.0) : 0.0;
 
     fprintf(out, "  \"summary\": {\n");
     fprintf(out, "    \"total_files\": %zu,\n", results.size());
@@ -192,9 +194,7 @@ static void WriteJsonResults(FILE* out,
     fprintf(out, "}\n");
 }
 
-int RunBenchmark(const std::wstring& path,
-                 const std::wstring& outputFile,
-                 int iterations)
+int RunBenchmark(const std::wstring& path, const std::wstring& outputFile, int iterations)
 {
     fs::path target(path);
 
@@ -210,8 +210,7 @@ int RunBenchmark(const std::wstring& path,
             if (entry.is_regular_file())
             {
                 auto ext = entry.path().extension().string();
-                if ((ext == ".exr" || ext == ".EXR") &&
-                    ExpectationFor(entry.path()) == Expect::MustLoad)
+                if ((ext == ".exr" || ext == ".EXR") && ExpectationFor(entry.path()) == Expect::MustLoad)
                 {
                     files.push_back(entry.path());
                 }

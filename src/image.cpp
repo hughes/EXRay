@@ -52,8 +52,8 @@ static bool ChromaticitiesMatch(const Imf::Chromaticities& a, const Imf::Chromat
 // Invert a 3x3 matrix (row-major). Returns false if singular.
 static bool Invert3x3(const float m[9], float inv[9])
 {
-    float det = m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) +
-                m[2] * (m[3] * m[7] - m[4] * m[6]);
+    float det =
+        m[0] * (m[4] * m[8] - m[5] * m[7]) - m[1] * (m[3] * m[8] - m[5] * m[6]) + m[2] * (m[3] * m[7] - m[4] * m[6]);
     if (std::fabs(det) < 1e-12f)
         return false;
     float id = 1.0f / det;
@@ -74,8 +74,7 @@ static void Mul3x3(const float a[9], const float b[9], float out[9])
 {
     for (int r = 0; r < 3; r++)
         for (int c = 0; c < 3; c++)
-            out[r * 3 + c] = a[r * 3 + 0] * b[0 * 3 + c] + a[r * 3 + 1] * b[1 * 3 + c] +
-                              a[r * 3 + 2] * b[2 * 3 + c];
+            out[r * 3 + c] = a[r * 3 + 0] * b[0 * 3 + c] + a[r * 3 + 1] * b[1 * 3 + c] + a[r * 3 + 2] * b[2 * 3 + c];
 }
 
 // Extract the upper-left 3x3 from an Imath::M44f and transpose it.
@@ -90,9 +89,9 @@ static void ExtractM33Transposed(const Imath::M44f& m, float out[9])
 
 // Bradford chromatic adaptation matrix
 static constexpr float kBradford[9] = {0.8951f, 0.2664f, -0.1614f, -0.7502f, 1.7135f,
-                                        0.0367f, 0.0389f, -0.0685f, 1.0296f};
+                                       0.0367f, 0.0389f, -0.0685f, 1.0296f};
 static constexpr float kBradfordInv[9] = {0.9870f, -0.1471f, 0.1600f, 0.4323f, 0.5184f,
-                                           0.0493f, -0.0085f, 0.0400f, 0.9685f};
+                                          0.0493f, -0.0085f, 0.0400f, 0.9685f};
 
 // Compute Bradford chromatic adaptation from source white XYZ to dest white XYZ
 static void BradfordAdaptation(const float srcWhiteXYZ[3], const float dstWhiteXYZ[3], float out[9])
@@ -204,8 +203,8 @@ static void ComputeColorMatrix(const Imf::Header& header, float outMatrix[9], st
     WhiteXYZ(src.white, srcWhite);
     WhiteXYZ(kRec709.white, dstWhite);
 
-    bool whitePointsDiffer = std::fabs(srcWhite[0] - dstWhite[0]) > 1e-4f ||
-                             std::fabs(srcWhite[2] - dstWhite[2]) > 1e-4f;
+    bool whitePointsDiffer =
+        std::fabs(srcWhite[0] - dstWhite[0]) > 1e-4f || std::fabs(srcWhite[2] - dstWhite[2]) > 1e-4f;
 
     if (whitePointsDiffer)
     {

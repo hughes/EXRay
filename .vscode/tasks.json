@@ -41,7 +41,8 @@
             "command": "bazelisk",
             "args": [
                 "build",
-                "-c", "opt",
+                "-c",
+                "opt",
                 "//:EXRay",
                 "//:EXRayThumb.dll"
             ],
@@ -63,7 +64,7 @@
             "dependsOn": "Build Installer"
         },
         {
-            "label": "Run Tests",
+            "label": "Run Validation Tests",
             "type": "shell",
             "command": "./bazel-bin/EXRay.exe",
             "args": [
@@ -76,6 +77,31 @@
                 "isDefault": true
             },
             "dependsOn": "Build EXRay",
+            "problemMatcher": []
+        },
+        {
+            "label": "Format Code",
+            "type": "shell",
+            "command": "Get-ChildItem -Path src,tests -Include *.cpp,*.h -Recurse | ForEach-Object { clang-format -i --style=file $_.FullName }",
+            "group": "build",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "silent"
+            }
+        },
+        {
+            "label": "Run Unit Tests",
+            "type": "shell",
+            "command": "bazelisk",
+            "args": [
+                "test",
+                "//:all",
+                "--test_output=errors"
+            ],
+            "group": {
+                "kind": "test",
+                "isDefault": false
+            },
             "problemMatcher": []
         },
         {

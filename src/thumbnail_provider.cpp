@@ -7,7 +7,6 @@
 #include <ImfIO.h>
 #include <ImfRgbaFile.h>
 #include <ImfStandardAttributes.h>
-
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -18,16 +17,12 @@
 class ComStreamAdapter : public Imf::IStream
 {
   public:
-    ComStreamAdapter(::IStream* pStream)
-        : Imf::IStream("<explorer stream>"), m_pStream(pStream)
+    ComStreamAdapter(::IStream* pStream) : Imf::IStream("<explorer stream>"), m_pStream(pStream)
     {
         m_pStream->AddRef();
     }
 
-    ~ComStreamAdapter() override
-    {
-        m_pStream->Release();
-    }
+    ~ComStreamAdapter() override { m_pStream->Release(); }
 
     bool read(char c[], int n) override
     {
@@ -101,10 +96,7 @@ IFACEMETHODIMP EXRayThumbnailProvider::QueryInterface(REFIID riid, void** ppv)
     return S_OK;
 }
 
-IFACEMETHODIMP_(ULONG) EXRayThumbnailProvider::AddRef()
-{
-    return InterlockedIncrement(&m_refCount);
-}
+IFACEMETHODIMP_(ULONG) EXRayThumbnailProvider::AddRef() { return InterlockedIncrement(&m_refCount); }
 
 IFACEMETHODIMP_(ULONG) EXRayThumbnailProvider::Release()
 {
@@ -193,8 +185,7 @@ IFACEMETHODIMP EXRayThumbnailProvider::GetThumbnail(UINT cx, HBITMAP* phbmp, WTS
         bmi.bmiHeader.biCompression = BI_RGB;
 
         BYTE* pBits = nullptr;
-        HBITMAP hbmp =
-            CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&pBits), nullptr, 0);
+        HBITMAP hbmp = CreateDIBSection(nullptr, &bmi, DIB_RGB_COLORS, reinterpret_cast<void**>(&pBits), nullptr, 0);
         if (!hbmp)
             return E_OUTOFMEMORY;
 

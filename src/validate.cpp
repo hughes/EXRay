@@ -141,14 +141,11 @@ static TestResult RunOne(const fs::path& file, const fs::path& baseDir)
 
 static void WriteResult(FILE* out, const TestResult& r)
 {
-    fprintf(out, "%s  %-50s",
-            r.passed ? "PASS" : "FAIL",
-            r.relativePath.string().c_str());
+    fprintf(out, "%s  %-50s", r.passed ? "PASS" : "FAIL", r.relativePath.string().c_str());
 
     if (r.loaded)
     {
-        fprintf(out, "  %5dx%-5d  load=%5.0fms  hist=%5.0fms",
-                r.width, r.height, r.loadMs, r.histMs);
+        fprintf(out, "  %5dx%-5d  load=%5.0fms  hist=%5.0fms", r.width, r.height, r.loadMs, r.histMs);
     }
     else
     {

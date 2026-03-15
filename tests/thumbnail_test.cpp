@@ -7,17 +7,16 @@
 #define UNICODE
 #endif
 
-#include <initguid.h>
 #include "thumbnail_provider.h"
 
 #include <ImfArray.h>
 #include <ImfRgbaFile.h>
-#include <shlwapi.h>
-
 #include <cassert>
 #include <cmath>
 #include <cstdio>
 #include <filesystem>
+#include <initguid.h>
+#include <shlwapi.h>
 #include <string>
 
 // Provide the global that thumbnail_provider.cpp expects.
@@ -26,26 +25,26 @@ long g_dllRefCount = 0;
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define TEST(name)                                                                                 \
-    static void test_##name();                                                                     \
-    struct Register_##name                                                                         \
-    {                                                                                              \
-        Register_##name() { test_##name(); }                                                       \
-    } reg_##name;                                                                                  \
+#define TEST(name)                                                                                                     \
+    static void test_##name();                                                                                         \
+    struct Register_##name                                                                                             \
+    {                                                                                                                  \
+        Register_##name() { test_##name(); }                                                                           \
+    } reg_##name;                                                                                                      \
     static void test_##name()
 
-#define EXPECT(expr)                                                                               \
-    do                                                                                             \
-    {                                                                                              \
-        tests_run++;                                                                               \
-        if (expr)                                                                                  \
-        {                                                                                          \
-            tests_passed++;                                                                        \
-        }                                                                                          \
-        else                                                                                       \
-        {                                                                                          \
-            fprintf(stderr, "  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr);                     \
-        }                                                                                          \
+#define EXPECT(expr)                                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        tests_run++;                                                                                                   \
+        if (expr)                                                                                                      \
+        {                                                                                                              \
+            tests_passed++;                                                                                            \
+        }                                                                                                              \
+        else                                                                                                           \
+        {                                                                                                              \
+            fprintf(stderr, "  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr);                                         \
+        }                                                                                                              \
     } while (0)
 
 // Write a small solid-color EXR to a temp file and return its path.
@@ -71,10 +70,7 @@ static std::wstring CreateTestEXR(int width, int height, float r, float g, float
     return path.wstring();
 }
 
-static void DeleteTestEXR(const std::wstring& path)
-{
-    std::filesystem::remove(path);
-}
+static void DeleteTestEXR(const std::wstring& path) { std::filesystem::remove(path); }
 
 // Create an IStream from a file path (what Explorer does for our handler).
 static IStream* StreamFromFile(const std::wstring& path)
@@ -189,7 +185,7 @@ TEST(GetThumbnail_portrait_aspect_ratio)
     {
         BITMAP bm;
         GetObject(hbmp, sizeof(bm), &bm);
-        EXPECT(bm.bmWidth == 64);  // half width (1:2 aspect)
+        EXPECT(bm.bmWidth == 64);   // half width (1:2 aspect)
         EXPECT(bm.bmHeight == 128); // full height
         DeleteObject(hbmp);
     }

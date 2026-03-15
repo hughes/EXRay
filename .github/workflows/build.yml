@@ -13,6 +13,15 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Check formatting
+        shell: bash
+        run: |
+          find src tests -name '*.cpp' -o -name '*.h' | xargs clang-format -i --style=file
+          git diff --exit-code -- src/ tests/ || {
+            echo "::error::Code is not formatted. Run clang-format on your changes."
+            exit 1
+          }
+
       - name: Mount Bazel cache
         uses: actions/cache@v4
         with:
@@ -28,7 +37,7 @@ jobs:
 
       - name: Run unit tests
         shell: cmd
-        run: bazelisk test //:update_checker_test --test_output=errors
+        run: bazelisk test //:all --test_output=errors
 
       - name: Cache test images
         uses: actions/cache@v4

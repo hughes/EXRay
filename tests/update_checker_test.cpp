@@ -12,26 +12,26 @@
 static int tests_run = 0;
 static int tests_passed = 0;
 
-#define TEST(name)                                                                                 \
-    static void test_##name();                                                                     \
-    struct Register_##name                                                                         \
-    {                                                                                              \
-        Register_##name() { test_##name(); }                                                       \
-    } reg_##name;                                                                                  \
+#define TEST(name)                                                                                                     \
+    static void test_##name();                                                                                         \
+    struct Register_##name                                                                                             \
+    {                                                                                                                  \
+        Register_##name() { test_##name(); }                                                                           \
+    } reg_##name;                                                                                                      \
     static void test_##name()
 
-#define EXPECT(expr)                                                                               \
-    do                                                                                             \
-    {                                                                                              \
-        tests_run++;                                                                               \
-        if (expr)                                                                                  \
-        {                                                                                          \
-            tests_passed++;                                                                        \
-        }                                                                                          \
-        else                                                                                       \
-        {                                                                                          \
-            fprintf(stderr, "  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr);                     \
-        }                                                                                          \
+#define EXPECT(expr)                                                                                                   \
+    do                                                                                                                 \
+    {                                                                                                                  \
+        tests_run++;                                                                                                   \
+        if (expr)                                                                                                      \
+        {                                                                                                              \
+            tests_passed++;                                                                                            \
+        }                                                                                                              \
+        else                                                                                                           \
+        {                                                                                                              \
+            fprintf(stderr, "  FAIL: %s:%d: %s\n", __FILE__, __LINE__, #expr);                                         \
+        }                                                                                                              \
     } while (0)
 
 // --- PackVersion ---
@@ -90,10 +90,9 @@ TEST(ParseTagVersion_zero_version)
 TEST(ParseTagVersion_realistic_github_response)
 {
     // Subset of a real GitHub API response
-    const char* json =
-        R"({"url":"https://api.github.com/repos/hughes/EXRay/releases/1234",)"
-        R"("tag_name":"v0.2.0","target_commitish":"main","name":"v0.2.0",)"
-        R"("draft":false,"prerelease":false,"body":"Release notes here"})";
+    const char* json = R"({"url":"https://api.github.com/repos/hughes/EXRay/releases/1234",)"
+                       R"("tag_name":"v0.2.0","target_commitish":"main","name":"v0.2.0",)"
+                       R"("draft":false,"prerelease":false,"body":"Release notes here"})";
     char ver[32] = {};
     int packed = UpdateChecker::ParseTagVersion(json, ver, sizeof(ver));
     EXPECT(packed == UpdateChecker::PackVersion(0, 2, 0));

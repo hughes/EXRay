@@ -6,14 +6,13 @@
 #define UNICODE
 #endif
 
-#include <windows.h>
 #include <propsys.h>
-#include <thumbcache.h>
 #include <shlobj.h>
+#include <thumbcache.h>
+#include <windows.h>
 
 // {7B5E2C4A-9F1D-4E8B-A6C3-D2F5E8B1A4C7}
-DEFINE_GUID(CLSID_EXRayThumbnailProvider,
-    0x7b5e2c4a, 0x9f1d, 0x4e8b, 0xa6, 0xc3, 0xd2, 0xf5, 0xe8, 0xb1, 0xa4, 0xc7);
+DEFINE_GUID(CLSID_EXRayThumbnailProvider, 0x7b5e2c4a, 0x9f1d, 0x4e8b, 0xa6, 0xc3, 0xd2, 0xf5, 0xe8, 0xb1, 0xa4, 0xc7);
 
 extern long g_dllRefCount;
 

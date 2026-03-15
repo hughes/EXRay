@@ -6,11 +6,10 @@
 #define UNICODE
 #endif
 
-#include <windows.h>
-#include <winhttp.h>
-
 #include <cstdio>
 #include <cstring>
+#include <windows.h>
+#include <winhttp.h>
 
 struct UpdateCheckResult
 {
@@ -21,10 +20,7 @@ struct UpdateCheckResult
 namespace UpdateChecker
 {
 
-inline int PackVersion(int major, int minor, int patch)
-{
-    return (major << 20) | (minor << 10) | patch;
-}
+inline int PackVersion(int major, int minor, int patch) { return (major << 20) | (minor << 10) | patch; }
 
 // Parse "tag_name":"vX.Y.Z" from GitHub API JSON response.
 inline int ParseTagVersion(const char* json, char* versionOut, size_t versionOutSize)
@@ -85,17 +81,15 @@ inline UpdateCheckResult Check(int currentMajor, int currentMinor, int currentPa
 
     WinHttpSetTimeouts(hSession, 10000, 10000, 10000, 15000);
 
-    HINTERNET hConnect =
-        WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+    HINTERNET hConnect = WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
     if (!hConnect)
     {
         WinHttpCloseHandle(hSession);
         return result;
     }
 
-    HINTERNET hRequest =
-        WinHttpOpenRequest(hConnect, L"GET", L"/repos/hughes/EXRay/releases/latest", nullptr,
-                           WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
+    HINTERNET hRequest = WinHttpOpenRequest(hConnect, L"GET", L"/repos/hughes/EXRay/releases/latest", nullptr,
+                                            WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE);
     if (!hRequest)
     {
         WinHttpCloseHandle(hConnect);
@@ -103,8 +97,7 @@ inline UpdateCheckResult Check(int currentMajor, int currentMinor, int currentPa
         return result;
     }
 
-    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0,
-                            0, 0) ||
+    if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0) ||
         !WinHttpReceiveResponse(hRequest, nullptr))
     {
         WinHttpCloseHandle(hRequest);
@@ -116,9 +109,8 @@ inline UpdateCheckResult Check(int currentMajor, int currentMinor, int currentPa
     // Check HTTP status
     DWORD statusCode = 0;
     DWORD size = sizeof(statusCode);
-    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                        WINHTTP_HEADER_NAME_BY_INDEX, &statusCode, &size,
-                        WINHTTP_NO_HEADER_INDEX);
+    WinHttpQueryHeaders(hRequest, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX,
+                        &statusCode, &size, WINHTTP_NO_HEADER_INDEX);
     if (statusCode != 200)
     {
         WinHttpCloseHandle(hRequest);
