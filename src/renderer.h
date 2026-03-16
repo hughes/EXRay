@@ -38,7 +38,14 @@ struct ViewportCB
     // 3x3 color matrix packed as 3x float4 (HLSL cbuffer alignment)
     // Converts source primaries → Rec. 709
     float colorMatrix[12]; // rows: [m00 m01 m02 pad] [m10 m11 m12 pad] [m20 m21 m22 pad]
-}; // 144 bytes
+    // Compare mode (16-byte aligned row)
+    int compareMode;     // 0=Off, 1=Split, 2=Difference, 3=Add, 4=Over
+    float splitX;        // split line position in screen pixels
+    float compareGain;   // multiplier for difference mode
+    float _pad2;
+    // Color matrix for compare source B (same layout as colorMatrix)
+    float colorMatrixB[12];
+}; // 208 bytes
 
 class Renderer
 {
@@ -49,8 +56,13 @@ class Renderer
     void EndFrame(bool vsync = true);
 
     bool UploadImage(const ImageData& image);
+    bool UploadCompareImage(const ImageData& image);
+    void ClearCompareImage();
+    void SwapCompareImages();
+    void SetQuadSize(float width, float height);
     void RenderImage(const ViewportCB& vp);
     bool HasImage() const { return m_imageSRV != nullptr; }
+    bool HasCompareImage() const { return m_compareSRV != nullptr; }
 
     ID3D11Device1* GetDevice() const { return m_device.Get(); }
     bool IsHDREnabled() const { return m_hdrEnabled; }
@@ -81,9 +93,13 @@ class Renderer
     ComPtr<ID3D11SamplerState> m_linearSampler;
     ComPtr<ID3D11SamplerState> m_pointSampler;
 
-    // Image texture
+    // Image texture (source A / primary)
     ComPtr<ID3D11Texture2D> m_imageTexture;
     ComPtr<ID3D11ShaderResourceView> m_imageSRV;
+
+    // Compare image texture (source B)
+    ComPtr<ID3D11Texture2D> m_compareTexture;
+    ComPtr<ID3D11ShaderResourceView> m_compareSRV;
 
     int m_width = 0;
     int m_height = 0;

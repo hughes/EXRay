@@ -104,6 +104,31 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     SendMessageW(m_gammaTrack, TBM_SETPAGESIZE, 0, 2); // page = 0.10
     Theme::ApplyToControl(m_gammaTrack);
 
+    // Compare mode buttons (always visible — None/Split/Diff/Add/Over)
+    {
+        const wchar_t* modeLabels[] = {L"None", L"Split", L"Diff", L"Add", L"Over"};
+        for (int i = 0; i < kNumCompareModes; i++)
+        {
+            m_compareModeBtns[i] = CreateWindowExW(
+                0, WC_BUTTONW, modeLabels[i], WS_CHILD | WS_VISIBLE | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareModeBtnBaseId + i)), hInstance, nullptr);
+        }
+    }
+    // Compare focus buttons (hidden until compare active)
+    {
+        const wchar_t* focusLabels[] = {L"Focus L", L"Focus R"};
+        for (int i = 0; i < 2; i++)
+        {
+            m_compareFocusBtns[i] = CreateWindowExW(
+                0, WC_BUTTONW, focusLabels[i], WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareFocusBtnBaseId + i)), hInstance, nullptr);
+        }
+    }
+    // Compare swap button (hidden until compare active)
+    m_compareSwapBtn = CreateWindowExW(
+        0, WC_BUTTONW, L"Swap", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareActionBtnBaseId)), hInstance, nullptr);
+
     // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
     m_layerList = CreateWindowExW(
         0, WC_LISTBOXW, nullptr,
@@ -159,6 +184,12 @@ void Sidebar::SetEnabled(bool enabled)
     for (auto btn : m_channelButtons)
         EnableWindow(btn, enabled);
     EnableWindow(m_layerList, enabled);
+    for (auto btn : m_compareModeBtns)
+        EnableWindow(btn, enabled);
+    for (auto btn : m_compareFocusBtns)
+        EnableWindow(btn, enabled);
+    if (m_compareSwapBtn)
+        EnableWindow(m_compareSwapBtn, enabled);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -187,6 +218,42 @@ void Sidebar::SetExposureGamma(float exposure, float gamma, bool isHDR)
         LayoutControls();
     }
     InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void Sidebar::SetCompareState(int mode, const wchar_t* labelBase, const wchar_t* labelBlend, int focusedSource)
+{
+    bool modeChanged = (mode != m_compareMode);
+    m_compareLabelBase = labelBase ? labelBase : L"";
+    m_compareLabelBlend = labelBlend ? labelBlend : L"";
+    m_compareFocus = focusedSource;
+
+    if (modeChanged)
+    {
+        m_compareMode = mode;
+        bool show = (mode > 0);
+        for (auto btn : m_compareFocusBtns)
+            ShowWindow(btn, show ? SW_SHOW : SW_HIDE);
+        ShowWindow(m_compareSwapBtn, show ? SW_SHOW : SW_HIDE);
+
+        bool isSplit = (mode == 1);
+        SetWindowTextW(m_compareFocusBtns[0], isSplit ? L"Focus L" : L"Focus Base");
+        SetWindowTextW(m_compareFocusBtns[1], isSplit ? L"Focus R" : L"Focus Blend");
+
+        for (auto btn : m_compareModeBtns)
+            InvalidateRect(btn, nullptr, FALSE);
+
+        LayoutControls();
+    }
+
+    // Always invalidate focus buttons (focus may have changed) and labels
+    for (auto btn : m_compareFocusBtns)
+        InvalidateRect(btn, nullptr, FALSE);
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void Sidebar::ClearCompareState()
+{
+    SetCompareState(0, nullptr, nullptr, 0);
 }
 
 void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
@@ -223,62 +290,30 @@ void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
 
             if (layer.numMipLevels > 1 && layer.mipLevel > 0)
             {
-                // Mip child — indented under parent layer
                 indent = multiPart ? 2 : 1;
-                wchar_t buf[64];
-                swprintf_s(buf, L"Mip %d  %d\u00D7%d", layer.mipLevel, layer.mipWidth, layer.mipHeight);
-                label = buf;
             }
-            else
+            else if (multiPart)
             {
-                // Top-level layer (or mip level 0)
-                if (multiPart)
+                indent = 1;
+                bool newPart = (idx == 0) || (info.layers[idx - 1].partIndex != layer.partIndex);
+                if (newPart)
                 {
-                    indent = 1; // layers indent under part
-                    // Check if this is a new part (show part header via indent 0)
-                    bool newPart = (idx == 0) || (info.layers[idx - 1].partIndex != layer.partIndex);
-                    if (newPart)
+                    std::wstring partLabel;
+                    if (!layer.partName.empty())
+                        partLabel = toWide(layer.partName);
+                    else
                     {
-                        // Insert a non-selectable part header
-                        std::wstring partLabel;
-                        if (!layer.partName.empty())
-                            partLabel = toWide(layer.partName);
-                        else
-                        {
-                            wchar_t buf[16];
-                            swprintf_s(buf, L"Part %d", layer.partIndex);
-                            partLabel = buf;
-                        }
-                        int partIdx = static_cast<int>(
-                            SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(partLabel.c_str())));
-                        // indent=0, flags: high bit marks as header (non-selectable)
-                        SendMessageW(m_layerList, LB_SETITEMDATA, partIdx, 0x80000000);
+                        wchar_t buf[16];
+                        swprintf_s(buf, L"Part %d", layer.partIndex);
+                        partLabel = buf;
                     }
-                }
-
-                // Layer name
-                if (layer.name.empty())
-                    label = L"(default)";
-                else
-                    label = toWide(layer.name);
-
-                // Append channel list
-                label += L"  ";
-                for (size_t i = 0; i < layer.channels.size(); i++)
-                {
-                    if (i > 0)
-                        label += L",";
-                    label += toWide(layer.channels[i]);
-                }
-
-                // Show dimensions for mip level 0 if mipmaps exist
-                if (layer.numMipLevels > 1)
-                {
-                    wchar_t buf[32];
-                    swprintf_s(buf, L"  %d\u00D7%d", layer.mipWidth, layer.mipHeight);
-                    label += buf;
+                    int partIdx = static_cast<int>(
+                        SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(partLabel.c_str())));
+                    SendMessageW(m_layerList, LB_SETITEMDATA, partIdx, 0x80000000);
                 }
             }
+
+            label = FormatLayerLabel(layer);
 
             int listIdx =
                 static_cast<int>(SendMessageW(m_layerList, LB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str())));
@@ -322,11 +357,10 @@ void Sidebar::LayoutControls()
     int y = m;
 
     // Histogram area is painted in OnPaint — just skip past it
-    // histogram rect
     y += histH + MulDiv(4, dpi, 96);
 
-    int nChildren = 9; // 5 channel buttons + exposure track + auto button + gamma track + layer list
-    HDWP hdwp = BeginDeferWindowPos(nChildren);
+    // 5 channel + 5 mode + 2 focus + 1 swap + exposure + auto + gamma + layerlist = 17
+    HDWP hdwp = BeginDeferWindowPos(17);
 
     // Channel buttons — adjacent, forming a single button group
     {
@@ -335,13 +369,57 @@ void Sidebar::LayoutControls()
         int x = m;
         for (int i = 0; i < 5; i++)
         {
-            int bw = (i == 4) ? (m + totalW - x) : btnW; // last button absorbs rounding
+            int bw = (i == 4) ? (m + totalW - x) : btnW;
             hdwp = DeferWindowPos(hdwp, m_channelButtons[i], nullptr, x, y, bw, channelBtnH,
                                   SWP_NOZORDER | SWP_NOACTIVATE);
             x += bw;
         }
     }
     y += channelBtnH + m;
+
+    // --- Compare mode buttons (always visible) ---
+    // "Compare" section label drawn in OnPaint
+    y += labelH + MulDiv(2, dpi, 96);
+
+    // Mode button group: [None][Split][Diff][Add][Over]
+    {
+        int totalW = w - 2 * m;
+        int btnW = totalW / kNumCompareModes;
+        int x = m;
+        for (int i = 0; i < kNumCompareModes; i++)
+        {
+            int bw = (i == kNumCompareModes - 1) ? (m + totalW - x) : btnW;
+            hdwp = DeferWindowPos(hdwp, m_compareModeBtns[i], nullptr, x, y, bw, channelBtnH,
+                                  SWP_NOZORDER | SWP_NOACTIVATE);
+            x += bw;
+        }
+    }
+    y += channelBtnH + m;
+
+    // --- Compare detail panel (only when compare mode is active) ---
+    if (m_compareMode > 0)
+    {
+        // Source base/left label drawn in OnPaint
+        y += labelH;
+        // Source blend/right label drawn in OnPaint
+        y += labelH + MulDiv(4, dpi, 96);
+
+        // Control row: [Focus L/Base] [Focus R/Blend] [Swap]
+        {
+            int totalW = w - 2 * m;
+            int btnW = totalW / 3;
+            int x = m;
+            for (int i = 0; i < 2; i++)
+            {
+                hdwp = DeferWindowPos(hdwp, m_compareFocusBtns[i], nullptr, x, y, btnW, buttonH,
+                                      SWP_NOZORDER | SWP_NOACTIVATE);
+                x += btnW;
+            }
+            hdwp = DeferWindowPos(hdwp, m_compareSwapBtn, nullptr, x, y, m + totalW - x, buttonH,
+                                  SWP_NOZORDER | SWP_NOACTIVATE);
+        }
+        y += buttonH + m;
+    }
 
     // Exposure label is drawn in OnPaint
     y += labelH + MulDiv(2, dpi, 96);
@@ -374,7 +452,7 @@ void Sidebar::LayoutControls()
         int totalH = rc.bottom - rc.top;
         int listH = totalH - y - m;
         if (listH < MulDiv(36, dpi, 96))
-            listH = MulDiv(36, dpi, 96); // minimum 2 rows
+            listH = MulDiv(36, dpi, 96);
         hdwp = DeferWindowPos(hdwp, m_layerList, nullptr, m, y, w - 2 * m, listH, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
@@ -684,6 +762,49 @@ void Sidebar::OnPaint()
     // Skip channel buttons area
     y += MulDiv(22, dpi, 96) + m;
 
+    // --- Compare section ---
+    // Section header (always visible)
+    {
+        RECT compareLabelRect = {m, y, w - m, y + labelH};
+        DrawTextW(memDC, L"Compare", -1, &compareLabelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        y += labelH + MulDiv(2, dpi, 96);
+    }
+
+    // Skip mode buttons (always visible)
+    y += MulDiv(22, dpi, 96) + m;
+
+    // Detail section (only when compare active)
+    if (m_compareMode > 0)
+    {
+        bool isSplit = (m_compareMode == 1);
+        const wchar_t* basePrefix = isSplit ? L"L: " : L"Base: ";
+        const wchar_t* blendPrefix = isSplit ? L"R: " : L"Blend: ";
+
+        // Base/Left label (highlighted if focused)
+        {
+            COLORREF baseColor = (m_compareFocus == 0) ? Colors::Selection : labelColor;
+            SetTextColor(memDC, baseColor);
+            std::wstring text = basePrefix + m_compareLabelBase;
+            RECT r = {m, y, w - m, y + labelH};
+            DrawTextW(memDC, text.c_str(), -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            y += labelH;
+        }
+
+        // Blend/Right label (highlighted if focused)
+        {
+            COLORREF blendColor = (m_compareFocus == 1) ? Colors::Selection : labelColor;
+            SetTextColor(memDC, blendColor);
+            std::wstring text = blendPrefix + m_compareLabelBlend;
+            RECT r = {m, y, w - m, y + labelH};
+            DrawTextW(memDC, text.c_str(), -1, &r, DT_LEFT | DT_SINGLELINE | DT_VCENTER | DT_END_ELLIPSIS);
+            y += labelH + MulDiv(4, dpi, 96);
+        }
+        SetTextColor(memDC, labelColor);
+
+        // Skip focus + swap button row
+        y += MulDiv(22, dpi, 96) + m;
+    }
+
     // --- Exposure section ---
     wchar_t expLabel[64];
     swprintf_s(expLabel, L"Exposure: %+.2f EV", m_exposure);
@@ -785,6 +906,11 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         int id = LOWORD(wParam);
         int code = HIWORD(wParam);
 
+        // Owner-drawn buttons send BN_DOUBLECLICKED on rapid clicks;
+        // treat it the same as BN_CLICKED everywhere.
+        if (code == BN_DOUBLECLICKED)
+            code = BN_CLICKED;
+
         if (id == kAutoExpButtonId && code == BN_CLICKED)
         {
             if (self->onAutoExposure)
@@ -796,12 +922,30 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             if (channel != self->m_channelMode)
             {
                 self->m_channelMode = channel;
-                // Repaint all channel buttons to update active state
                 for (auto btn : self->m_channelButtons)
                     InvalidateRect(btn, nullptr, FALSE);
                 if (self->onHistogramChannel)
                     self->onHistogramChannel(channel);
             }
+        }
+        else if (id >= kCompareModeBtnBaseId && id < kCompareModeBtnBaseId + kNumCompareModes && code == BN_CLICKED)
+        {
+            int mode = id - kCompareModeBtnBaseId;
+            if (self->onCompareMode)
+                self->onCompareMode(mode);
+        }
+        else if (id >= kCompareFocusBtnBaseId && id < kCompareFocusBtnBaseId + 2 && code == BN_CLICKED)
+        {
+            int source = id - kCompareFocusBtnBaseId; // 0=A, 1=B
+            if (source == 0 && self->onCompareFocusA)
+                self->onCompareFocusA();
+            else if (source == 1 && self->onCompareFocusB)
+                self->onCompareFocusB();
+        }
+        else if (id == kCompareActionBtnBaseId && code == BN_CLICKED)
+        {
+            if (self->onCompareSwap)
+                self->onCompareSwap();
         }
         else if (id == kLayerListId && code == LBN_SELCHANGE)
         {
@@ -930,6 +1074,142 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
             SelectObject(dis->hDC, oldFont);
 
+            return TRUE;
+        }
+
+        // Owner-drawn compare mode buttons (segmented like channel buttons)
+        if (dis->CtlID >= static_cast<UINT>(kCompareModeBtnBaseId) &&
+            dis->CtlID < static_cast<UINT>(kCompareModeBtnBaseId + kNumCompareModes))
+        {
+            int idx = static_cast<int>(dis->CtlID) - kCompareModeBtnBaseId;
+            bool active = (idx == self->m_compareMode);
+            bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+
+            COLORREF bgColor = pressed ? Colors::ButtonPressed : active ? Colors::Surface : Colors::Background;
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            // Segmented border
+            HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, borderPen));
+            int L = dis->rcItem.left, T = dis->rcItem.top;
+            int R = dis->rcItem.right - 1, B = dis->rcItem.bottom - 1;
+            MoveToEx(dis->hDC, L, T, nullptr);
+            LineTo(dis->hDC, R + 1, T);
+            MoveToEx(dis->hDC, L, B, nullptr);
+            LineTo(dis->hDC, R + 1, B);
+            if (idx == 0)
+            {
+                MoveToEx(dis->hDC, L, T, nullptr);
+                LineTo(dis->hDC, L, B + 1);
+            }
+            MoveToEx(dis->hDC, R, T, nullptr);
+            LineTo(dis->hDC, R, B + 1);
+            SelectObject(dis->hDC, oldPen);
+            DeleteObject(borderPen);
+
+            // Active indicator
+            if (active)
+            {
+                RECT indicator = dis->rcItem;
+                indicator.top = indicator.bottom - 2;
+                indicator.left += 1;
+                indicator.right -= 1;
+                HBRUSH accentBrush = CreateSolidBrush(Colors::Selection);
+                FillRect(dis->hDC, &indicator, accentBrush);
+                DeleteObject(accentBrush);
+            }
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, active ? Colors::TextBright : Colors::TextPrimary);
+            HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            wchar_t label[16] = {};
+            GetWindowTextW(dis->hwndItem, label, 16);
+            DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dis->hDC, oldFont);
+            return TRUE;
+        }
+
+        // Owner-drawn compare focus buttons (segmented pair with active indicator)
+        if (dis->CtlID >= static_cast<UINT>(kCompareFocusBtnBaseId) &&
+            dis->CtlID < static_cast<UINT>(kCompareFocusBtnBaseId + 2))
+        {
+            int idx = static_cast<int>(dis->CtlID) - kCompareFocusBtnBaseId;
+            bool active = (idx == self->m_compareFocus);
+            bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+
+            COLORREF bgColor = pressed ? Colors::ButtonPressed : active ? Colors::Surface : Colors::Background;
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, borderPen));
+            int L = dis->rcItem.left, T = dis->rcItem.top;
+            int R = dis->rcItem.right - 1, B = dis->rcItem.bottom - 1;
+            MoveToEx(dis->hDC, L, T, nullptr);
+            LineTo(dis->hDC, R + 1, T);
+            MoveToEx(dis->hDC, L, B, nullptr);
+            LineTo(dis->hDC, R + 1, B);
+            if (idx == 0)
+            {
+                MoveToEx(dis->hDC, L, T, nullptr);
+                LineTo(dis->hDC, L, B + 1);
+            }
+            MoveToEx(dis->hDC, R, T, nullptr);
+            LineTo(dis->hDC, R, B + 1);
+            SelectObject(dis->hDC, oldPen);
+            DeleteObject(borderPen);
+
+            if (active)
+            {
+                RECT indicator = dis->rcItem;
+                indicator.top = indicator.bottom - 2;
+                indicator.left += 1;
+                indicator.right -= 1;
+                HBRUSH accentBrush = CreateSolidBrush(Colors::Selection);
+                FillRect(dis->hDC, &indicator, accentBrush);
+                DeleteObject(accentBrush);
+            }
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, active ? Colors::TextBright : Colors::TextPrimary);
+            HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            wchar_t label[16] = {};
+            GetWindowTextW(dis->hwndItem, label, 16);
+            DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dis->hDC, oldFont);
+            return TRUE;
+        }
+
+        // Owner-drawn compare swap button (same style as Auto)
+        if (dis->CtlID == static_cast<UINT>(kCompareActionBtnBaseId))
+        {
+            bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+            COLORREF bgColor = pressed ? Colors::ButtonPressed : Colors::Background;
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, borderPen));
+            HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(dis->hDC, GetStockObject(NULL_BRUSH)));
+            Rectangle(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right, dis->rcItem.bottom);
+            SelectObject(dis->hDC, oldPen);
+            SelectObject(dis->hDC, oldBr);
+            DeleteObject(borderPen);
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, Colors::TextPrimary);
+            HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            wchar_t label[16] = {};
+            GetWindowTextW(dis->hwndItem, label, 16);
+            DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dis->hDC, oldFont);
             return TRUE;
         }
 

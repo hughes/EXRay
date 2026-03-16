@@ -30,6 +30,14 @@ cbuffer ViewportCB : register(b0) {
     float4   colorMatrixRow0;
     float4   colorMatrixRow1;
     float4   colorMatrixRow2;
+    // Compare mode
+    int      compareMode;   // 0=Off, 1=Split, 2=Difference, 3=Add, 4=Over
+    float    splitX;        // screen-pixel X of the split line
+    float    compareGain;   // multiplier for difference mode
+    float    _pad2;
+    float4   colorMatrixBRow0;
+    float4   colorMatrixBRow1;
+    float4   colorMatrixBRow2;
 };
 
 struct VS_INPUT {
@@ -42,8 +50,9 @@ struct VS_OUTPUT {
     float2 uv  : TEXCOORD0;
 };
 
-Texture2D<float4> imageTexture : register(t0);
-SamplerState      imageSampler : register(s0);
+Texture2D<float4> imageTexture   : register(t0);
+Texture2D<float4> compareTexture : register(t1);
+SamplerState      imageSampler   : register(s0);
 
 VS_OUTPUT VSMain(VS_INPUT input) {
     VS_OUTPUT output;
@@ -61,6 +70,47 @@ float4 PSMain(VS_OUTPUT input) : SV_TARGET {
     converted.g = dot(colorMatrixRow1.xyz, hdr.rgb);
     converted.b = dot(colorMatrixRow2.xyz, hdr.rgb);
     hdr.rgb = converted;
+
+    // --- Compare mode handling ---
+    if (compareMode == 1) {
+        // Split: show source B on the right side of the split line
+        if (input.pos.x > splitX) {
+            float4 hdrB = compareTexture.Sample(imageSampler, input.uv);
+            float3 convB;
+            convB.r = dot(colorMatrixBRow0.xyz, hdrB.rgb);
+            convB.g = dot(colorMatrixBRow1.xyz, hdrB.rgb);
+            convB.b = dot(colorMatrixBRow2.xyz, hdrB.rgb);
+            hdr.rgb = convB;
+            hdr.a = hdrB.a;
+        }
+        // Draw split line indicator (1px white line)
+        float dist = abs(input.pos.x - splitX);
+        if (dist < 1.0) {
+            float lineColor = isHDR ? sdrWhiteNits / 80.0 : 1.0;
+            return float4(lineColor, lineColor, lineColor, 1.0);
+        }
+    } else if (compareMode >= 2) {
+        // Sample and convert blend image
+        float4 hdrB = compareTexture.Sample(imageSampler, input.uv);
+        float3 convB;
+        convB.r = dot(colorMatrixBRow0.xyz, hdrB.rgb);
+        convB.g = dot(colorMatrixBRow1.xyz, hdrB.rgb);
+        convB.b = dot(colorMatrixBRow2.xyz, hdrB.rgb);
+
+        if (compareMode == 2) {
+            // Difference: |base - blend| * gain
+            hdr.rgb = abs(hdr.rgb - convB) * compareGain;
+            hdr.a = 1.0;
+        } else if (compareMode == 3) {
+            // Add: base + blend
+            hdr.rgb = hdr.rgb + convB;
+            hdr.a = saturate(hdr.a + hdrB.a);
+        } else if (compareMode == 4) {
+            // Over: blend composited over base (Porter-Duff Over)
+            hdr.rgb = convB * hdrB.a + hdr.rgb * (1.0 - hdrB.a);
+            hdr.a = hdrB.a + hdr.a * (1.0 - hdrB.a);
+        }
+    }
 
     // Solo channel modes: extract single channel as grayscale
     // displayMode: 0=normal(+alpha), 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)
@@ -470,6 +520,70 @@ bool Renderer::UploadImage(const ImageData& image)
     return true;
 }
 
+void Renderer::SetQuadSize(float width, float height)
+{
+    Vertex vertices[] = {
+        {0.0f, 0.0f, 0.0f, 0.0f},
+        {width, 0.0f, 1.0f, 0.0f},
+        {width, height, 1.0f, 1.0f},
+        {0.0f, height, 0.0f, 1.0f},
+    };
+
+    m_vertexBuffer.Reset();
+    D3D11_BUFFER_DESC vbDesc = {};
+    vbDesc.ByteWidth = sizeof(vertices);
+    vbDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    vbDesc.BindFlags = D3D11_BIND_VERTEX_BUFFER;
+    D3D11_SUBRESOURCE_DATA vbData = {};
+    vbData.pSysMem = vertices;
+    m_device->CreateBuffer(&vbDesc, &vbData, &m_vertexBuffer);
+}
+
+bool Renderer::UploadCompareImage(const ImageData& image)
+{
+    m_compareTexture.Reset();
+    m_compareSRV.Reset();
+
+    if (!image.IsLoaded())
+        return true;
+
+    D3D11_TEXTURE2D_DESC texDesc = {};
+    texDesc.Width = image.width;
+    texDesc.Height = image.height;
+    texDesc.MipLevels = 1;
+    texDesc.ArraySize = 1;
+    texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDesc.SampleDesc.Count = 1;
+    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+
+    D3D11_SUBRESOURCE_DATA initData = {};
+    initData.pSysMem = image.pixels.data();
+    initData.SysMemPitch = image.width * 4 * sizeof(float);
+
+    HRESULT hr = m_device->CreateTexture2D(&texDesc, &initData, &m_compareTexture);
+    if (FAILED(hr))
+        return false;
+
+    hr = m_device->CreateShaderResourceView(m_compareTexture.Get(), nullptr, &m_compareSRV);
+    if (FAILED(hr))
+        return false;
+
+    return true;
+}
+
+void Renderer::SwapCompareImages()
+{
+    std::swap(m_imageTexture, m_compareTexture);
+    std::swap(m_imageSRV, m_compareSRV);
+}
+
+void Renderer::ClearCompareImage()
+{
+    m_compareTexture.Reset();
+    m_compareSRV.Reset();
+}
+
 HDRDisplayInfo Renderer::DetectHDR(HWND hwnd)
 {
     HDRDisplayInfo info;
@@ -566,10 +680,19 @@ void Renderer::RenderImage(const ViewportCB& vp)
     m_context->PSSetShader(m_pixelShader.Get(), nullptr, 0);
     m_context->PSSetConstantBuffers(0, 1, m_constantBuffer.GetAddressOf());
     m_context->PSSetShaderResources(0, 1, m_imageSRV.GetAddressOf());
+    if (m_compareSRV)
+        m_context->PSSetShaderResources(1, 1, m_compareSRV.GetAddressOf());
 
     // Switch to nearest-neighbor sampling when zoomed past 1:1
     auto& sampler = (vp.zoom >= 1.0f) ? m_pointSampler : m_linearSampler;
     m_context->PSSetSamplers(0, 1, sampler.GetAddressOf());
 
     m_context->DrawIndexed(6, 0, 0);
+
+    // Unbind compare SRV to avoid resource hazards
+    if (m_compareSRV)
+    {
+        ID3D11ShaderResourceView* nullSRV = nullptr;
+        m_context->PSSetShaderResources(1, 1, &nullSRV);
+    }
 }

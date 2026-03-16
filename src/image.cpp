@@ -622,3 +622,50 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
         return false;
     }
 }
+
+static std::wstring Utf8ToWide(const std::string& s)
+{
+    if (s.empty())
+        return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(len - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), len);
+    return w;
+}
+
+std::wstring FormatLayerLabel(const ExrLayer& layer)
+{
+    // Mip child levels
+    if (layer.numMipLevels > 1 && layer.mipLevel > 0)
+    {
+        wchar_t buf[64];
+        swprintf_s(buf, L"Mip %d  %d\u00D7%d", layer.mipLevel, layer.mipWidth, layer.mipHeight);
+        return buf;
+    }
+
+    // Top-level layer
+    std::wstring label;
+    if (layer.name.empty())
+        label = L"(default)";
+    else
+        label = Utf8ToWide(layer.name);
+
+    // Append channel list
+    label += L"  ";
+    for (size_t i = 0; i < layer.channels.size(); i++)
+    {
+        if (i > 0)
+            label += L",";
+        label += Utf8ToWide(layer.channels[i]);
+    }
+
+    // Show dimensions for mip level 0 if mipmaps exist
+    if (layer.numMipLevels > 1)
+    {
+        wchar_t buf[32];
+        swprintf_s(buf, L"  %d\u00D7%d", layer.mipWidth, layer.mipHeight);
+        label += buf;
+    }
+
+    return label;
+}

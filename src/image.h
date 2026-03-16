@@ -92,6 +92,10 @@ struct ChannelMapping
 // then fall back to grayscale for single-channel layers.
 ChannelMapping MapChannelsToRGBA(const std::vector<std::string>& channels);
 
+// Format a layer label for display (used in sidebar layer list and compare source labels).
+// Returns e.g. "(default)  Y", "right  Y", "Mip 2  128x128"
+std::wstring FormatLayerLabel(const ExrLayer& layer);
+
 class ImageLoader
 {
   public:

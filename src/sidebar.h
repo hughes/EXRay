@@ -20,6 +20,8 @@ class Sidebar
     using AutoExposureHandler = std::function<void()>;
     using HistogramChannelHandler = std::function<void(int channel)>;
     using LayerSelectHandler = std::function<void(int layerIndex)>;
+    using CompareActionHandler = std::function<void()>;
+    using CompareModeHandler = std::function<void(int mode)>; // 0=off, 1=split, 2=diff
 
     bool Create(HWND parent, HINSTANCE hInstance);
 
@@ -42,12 +44,20 @@ class Sidebar
     // Layer browser
     void SetLayers(const ExrFileInfo& info, int activeLayer);
 
+    // Compare panel
+    void SetCompareState(int mode, const wchar_t* labelA, const wchar_t* labelB, int focusedSource);
+    void ClearCompareState();
+
     // Callbacks
     ExposureChangeHandler onExposureChange;
     GammaChangeHandler onGammaChange;
     AutoExposureHandler onAutoExposure;
     HistogramChannelHandler onHistogramChannel;
     LayerSelectHandler onLayerSelect;
+    CompareModeHandler onCompareMode;
+    CompareActionHandler onCompareSwap;
+    CompareActionHandler onCompareFocusA;
+    CompareActionHandler onCompareFocusB;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -74,6 +84,16 @@ class Sidebar
     bool m_suppressLayerChange = false;
     std::vector<int> m_layerListMapping; // listbox index → ExrLayer index (skipping headers)
 
+    // Compare panel
+    static constexpr int kNumCompareModes = 5; // None, Split, Diff, Add, Over
+    HWND m_compareModeBtns[kNumCompareModes] = {};
+    HWND m_compareFocusBtns[2] = {};  // [Focus Left/Base] [Focus Right/Blend]
+    HWND m_compareSwapBtn = nullptr;  // [Swap]
+    int m_compareMode = 0;            // 0=off, 1=split, 2=diff, 3=add, 4=over
+    int m_compareFocus = 0;           // 0=base/left, 1=blend/right
+    std::wstring m_compareLabelBase;
+    std::wstring m_compareLabelBlend;
+
     // Current display state
     HistogramData m_histogram;
     int m_channelMode = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
@@ -97,4 +117,7 @@ class Sidebar
     static constexpr int kAutoExpButtonId = 2003;
     static constexpr int kChannelBtnBaseId = 2004; // 2004..2008 for 5 buttons
     static constexpr int kLayerListId = 2010;
+    static constexpr int kCompareModeBtnBaseId = 2020;   // 2020..2024 (None, Split, Diff, Add, Over)
+    static constexpr int kCompareFocusBtnBaseId = 2025;  // 2025..2026
+    static constexpr int kCompareActionBtnBaseId = 2030; // 2030..2032
 };

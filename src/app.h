@@ -76,6 +76,46 @@ class App
     // Display mode: 0=RGB, 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)
     int m_displayMode = kDisplayModeRGB;
 
+    // Compare mode
+    enum class CompareMode
+    {
+        Off = 0,
+        Split = 1,
+        Difference = 2,
+        Add = 3,
+        Over = 4,
+    };
+
+    // A compare source snapshots the image at Set time
+    struct CompareSource
+    {
+        int tabIndex = -1;
+        int layerIndex = 0;
+        ImageData image;       // snapshotted pixel data (copied at Set time)
+        std::wstring label;    // human-readable label, e.g. "Blobbies.exr (diffuse)"
+    };
+
+    CompareMode m_compareMode = CompareMode::Off;
+    CompareSource m_compareBase;
+    CompareSource m_compareBlend;
+    int m_compareFocused = 0;    // 0=base/left, 1=blend/right
+    float m_splitX = 0.5f;      // normalized [0,1] split position
+    float m_compareGain = 1.0f;  // gain for difference mode
+
+    // Saved viewport state — restored when exiting compare
+    float m_savedImageWidth = 0;
+    float m_savedImageHeight = 0;
+
+    void SetCompareMode(CompareMode mode);
+    void ExitCompare();
+    void SwapCompareSources();
+    void SetCompareFocus(int source); // 0=base, 1=blend
+    void SnapshotFocusedSource();
+    void UploadCompareTextures();
+    void SyncComparePanel();
+    void AdjustCompareAfterRemove(int removedIndex);
+    std::wstring MakeSourceLabel() const;
+
     // Open file tabs
     struct OpenTab
     {

@@ -175,7 +175,9 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
         else if (vk == VK_ESCAPE)
         {
-            if (m_window.IsFullscreen())
+            if (m_compareMode != CompareMode::Off)
+                ExitCompare();
+            else if (m_window.IsFullscreen())
                 m_window.ToggleFullscreen();
             else
                 DestroyWindow(m_window.GetHwnd());
@@ -240,6 +242,21 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_needsRedraw = true;
     };
     sidebar.onLayerSelect = [this](int layerIndex) { LoadLayer(layerIndex); };
+    sidebar.onCompareMode = [this](int mode)
+    {
+        SetCompareMode(static_cast<CompareMode>(mode));
+    };
+    sidebar.onCompareSwap = [this]() { SwapCompareSources(); };
+    sidebar.onCompareFocusA = [this]()
+    {
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(0);
+    };
+    sidebar.onCompareFocusB = [this]()
+    {
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(1);
+    };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
     {
@@ -494,7 +511,23 @@ void App::Render()
         ViewportCB vp = m_viewport.ToViewportCB();
         vp.showGrid = m_showGrid ? 1 : 0;
         vp.displayMode = m_displayMode;
-        PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+
+        // Compare mode parameters
+        vp.compareMode = static_cast<int>(m_compareMode);
+        vp.splitX = m_splitX * m_viewport.clientWidth;
+        vp.compareGain = m_compareGain;
+
+        if (m_compareMode != CompareMode::Off &&
+            m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+        {
+            PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
+            PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
+        }
+        else
+        {
+            PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+        }
+
         m_renderer.RenderImage(vp);
     }
 
@@ -634,6 +667,32 @@ void App::OnCommand(int commandId)
         m_window.ToggleFullscreen();
         break;
 
+    case IDM_COMPARE_SPLIT:
+        SetCompareMode(CompareMode::Split);
+        break;
+
+    case IDM_COMPARE_DIFF:
+        SetCompareMode(CompareMode::Difference);
+        break;
+
+    case IDM_COMPARE_OFF:
+        ExitCompare();
+        break;
+
+    case IDM_COMPARE_SWAP:
+        SwapCompareSources();
+        break;
+
+    case IDM_COMPARE_SET_A:
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(0);
+        break;
+
+    case IDM_COMPARE_SET_B:
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(1);
+        break;
+
     case IDM_HELP_ABOUT:
     {
         HICON bigIcon = static_cast<HICON>(
@@ -706,7 +765,22 @@ void App::OnResize(int width, int height)
             ViewportCB vp = m_viewport.ToViewportCB();
             vp.showGrid = m_showGrid ? 1 : 0;
             vp.displayMode = m_displayMode;
-            PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+
+            vp.compareMode = static_cast<int>(m_compareMode);
+            vp.splitX = m_splitX * m_viewport.clientWidth;
+            vp.compareGain = m_compareGain;
+
+            if (m_compareMode != CompareMode::Off &&
+                m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+            {
+                PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
+                PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
+            }
+            else
+            {
+                PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+            }
+
             m_renderer.RenderImage(vp);
         }
         m_renderer.EndFrame(false);
@@ -734,10 +808,15 @@ bool App::LoadFile(const std::wstring& path)
         m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
         m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
-        m_viewport.imageWidth = static_cast<float>(m_image.width);
-        m_viewport.imageHeight = static_cast<float>(m_image.height);
-        m_viewport.exposure = m_histogram.autoExposure;
-        m_viewport.FitToWindow();
+        // In compare mode, keep viewport locked — dimensions and zoom/pan
+        // will be set by UploadCompareTextures via the caller.
+        if (m_compareMode == CompareMode::Off)
+        {
+            m_viewport.imageWidth = static_cast<float>(m_image.width);
+            m_viewport.imageHeight = static_cast<float>(m_image.height);
+            m_viewport.exposure = m_histogram.autoExposure;
+            m_viewport.FitToWindow();
+        }
 
         wchar_t title[MAX_PATH + 16];
         swprintf_s(title, L"EXRay - %s", path.c_str());
@@ -790,11 +869,23 @@ bool App::LoadLayer(int layerIndex)
         m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
         m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
-        m_viewport.imageWidth = static_cast<float>(m_image.width);
-        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        if (m_compareMode != CompareMode::Off)
+        {
+            // In compare mode, keep viewport locked — don't change
+            // imageWidth/Height or zoom. Just snapshot and re-upload.
+            SnapshotFocusedSource();
+            UploadCompareTextures();
+            SyncComparePanel();
+        }
+        else
+        {
+            m_viewport.imageWidth = static_cast<float>(m_image.width);
+            m_viewport.imageHeight = static_cast<float>(m_image.height);
 
-        if (isMipSwitch && oldWidth > 0.0f)
-            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
+            if (isMipSwitch && oldWidth > 0.0f)
+                m_viewport.zoom =
+                    (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
+        }
 
         SyncSidebar();
         UpdateImageStatusText();
@@ -843,6 +934,14 @@ void App::OpenFile(const std::wstring& path)
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
     AddToRecentFiles(path);
+
+    // If compare mode is active, snapshot the new file as the focused source
+    if (m_compareMode != CompareMode::Off)
+    {
+        SnapshotFocusedSource();
+        UploadCompareTextures();
+        SyncComparePanel();
+    }
 }
 
 void App::SwitchToTab(int index)
@@ -862,19 +961,39 @@ void App::SwitchToTab(int index)
     m_activeLayer = m_openTabs[index].activeLayer;
     m_renderer.UploadImage(m_image);
 
-    m_viewport.imageWidth = static_cast<float>(m_image.width);
-    m_viewport.imageHeight = static_cast<float>(m_image.height);
-    m_viewport.exposure = m_openTabs[index].exposure;
-    m_viewport.zoom = m_openTabs[index].zoom;
-    m_viewport.panX = m_openTabs[index].panX;
-    m_viewport.panY = m_openTabs[index].panY;
-    m_viewport.gamma = m_openTabs[index].gamma;
+    // In compare mode, keep viewport locked to the entry dimensions
+    if (m_compareMode == CompareMode::Off)
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = m_openTabs[index].exposure;
+        m_viewport.zoom = m_openTabs[index].zoom;
+        m_viewport.panX = m_openTabs[index].panX;
+        m_viewport.panY = m_openTabs[index].panY;
+        m_viewport.gamma = m_openTabs[index].gamma;
+    }
 
     wchar_t title[MAX_PATH + 16];
     swprintf_s(title, L"EXRay - %s", m_openTabs[index].path.c_str());
     m_window.SetTitle(title);
 
+    // If compare mode is active, switching tabs updates the focused source.
+    // Snapshot directly from m_image (which was just set up above) rather than
+    // going through SnapshotFocusedSource() which calls SaveTabState() and
+    // would move m_image back into the tab, leaving it empty.
+    if (m_compareMode != CompareMode::Off)
+    {
+        CompareSource& target = (m_compareFocused == 1) ? m_compareBlend : m_compareBase;
+        target.tabIndex = m_activeTab;
+        target.layerIndex = m_activeLayer;
+        target.label = MakeSourceLabel();
+        if (m_image.IsLoaded())
+            target.image = m_image;
+        UploadCompareTextures();
+    }
+
     SyncSidebar();
+    SyncComparePanel();
     UpdateImageStatusText();
     m_needsRedraw = true;
 }
@@ -888,11 +1007,16 @@ void App::CloseCurrentTab()
     }
 
     int closingIndex = m_activeTab;
+    AdjustCompareAfterRemove(closingIndex);
     m_openTabs.erase(m_openTabs.begin() + closingIndex);
     m_window.RemoveTab(closingIndex);
 
     if (m_openTabs.empty())
     {
+        // Exit compare before clearing state — snapshots reference tab data
+        if (m_compareMode != CompareMode::Off)
+            ExitCompare();
+
         m_activeTab = -1;
         m_image = ImageData{};
         m_renderer.UploadImage(m_image);
@@ -932,6 +1056,7 @@ void App::CloseTabAtIndex(int index)
         return;
     }
 
+    AdjustCompareAfterRemove(index);
     m_openTabs.erase(m_openTabs.begin() + index);
     m_window.RemoveTab(index);
 
@@ -961,8 +1086,250 @@ void App::SaveTabState()
     }
 }
 
+void App::SetCompareMode(CompareMode mode)
+{
+    if (mode == CompareMode::Off)
+    {
+        ExitCompare();
+        return;
+    }
+
+    bool wasOff = (m_compareMode == CompareMode::Off);
+    m_compareMode = mode;
+
+    if (wasOff)
+    {
+        // Entering compare — snapshot current image as both base and blend
+        m_compareFocused = 0;
+        SnapshotFocusedSource();
+        m_compareFocused = 1;
+        SnapshotFocusedSource();
+        m_compareFocused = 0; // default focus on base
+
+        // Lock viewport dimensions to the current image so zoom/pan stays
+        // stable regardless of source changes or swaps
+        m_savedImageWidth = m_viewport.imageWidth;
+        m_savedImageHeight = m_viewport.imageHeight;
+    }
+
+    UploadCompareTextures();
+    // Keep viewport locked to entry dimensions
+    m_viewport.imageWidth = m_savedImageWidth;
+    m_viewport.imageHeight = m_savedImageHeight;
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::ExitCompare()
+{
+    m_compareMode = CompareMode::Off;
+    m_compareBase = {};
+    m_compareBlend = {};
+    m_renderer.ClearCompareImage();
+
+    // Restore viewport to the live image's actual dimensions
+    if (m_image.IsLoaded())
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_renderer.UploadImage(m_image);
+    }
+
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::SwapCompareSources()
+{
+    if (m_compareMode == CompareMode::Off)
+        return;
+    std::swap(m_compareBase, m_compareBlend);
+
+    // Swap GPU textures directly (no re-upload needed)
+    m_renderer.SwapCompareImages();
+
+    // Update viewport to match new base dimensions.
+    // Scale zoom to preserve visual size, adjust pan to keep center fixed.
+    if (m_compareBase.image.IsLoaded())
+    {
+        float oldW = m_savedImageWidth;
+        float oldH = m_savedImageHeight;
+        float newW = static_cast<float>(m_compareBase.image.width);
+        float newH = static_cast<float>(m_compareBase.image.height);
+
+        float scale = oldW / newW;
+        float oldZoom = m_viewport.zoom;
+        m_viewport.zoom *= scale;
+
+        float cx = m_viewport.panX + oldW * oldZoom * 0.5f;
+        float cy = m_viewport.panY + oldH * oldZoom * 0.5f;
+        m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+        m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+
+        m_savedImageWidth = newW;
+        m_savedImageHeight = newH;
+        m_viewport.imageWidth = m_savedImageWidth;
+        m_viewport.imageHeight = m_savedImageHeight;
+        m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
+    }
+
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::SetCompareFocus(int source)
+{
+    m_compareFocused = source;
+
+    // Switch to the focused source's tab so the layer list, active file,
+    // and tab bar are all in sync.
+    const CompareSource& src = (source == 1) ? m_compareBlend : m_compareBase;
+    if (src.tabIndex >= 0 && src.tabIndex < static_cast<int>(m_openTabs.size()) &&
+        src.tabIndex != m_activeTab)
+    {
+        // Temporarily exit compare to prevent SwitchToTab from auto-snapshotting
+        // (we're just navigating, not changing the source)
+        CompareMode savedMode = m_compareMode;
+        m_compareMode = CompareMode::Off;
+        SwitchToTab(src.tabIndex);
+        m_compareMode = savedMode;
+        UploadCompareTextures();
+    }
+
+    // Update the layer selection to match the source's snapshotted layer
+    if (src.tabIndex == m_activeTab)
+        m_activeLayer = src.layerIndex;
+
+    SyncSidebar();
+    SyncComparePanel();
+}
+
+void App::SnapshotFocusedSource()
+{
+    CompareSource& target = (m_compareFocused == 1) ? m_compareBlend : m_compareBase;
+    target.tabIndex = m_activeTab;
+    target.layerIndex = m_activeLayer;
+    target.label = MakeSourceLabel();
+    // Copy directly from m_image (the live working image) when available.
+    // Avoid SaveTabState() which moves m_image into the tab, creating
+    // confusing ownership state.
+    if (m_image.IsLoaded())
+        target.image = m_image;
+}
+
+void App::AdjustCompareAfterRemove(int removedIndex)
+{
+    if (m_compareMode == CompareMode::Off)
+        return;
+
+    auto adjust = [](int src, int removed) -> int
+    {
+        if (src == removed)
+            return -1;
+        if (src > removed)
+            return src - 1;
+        return src;
+    };
+
+    m_compareBase.tabIndex = adjust(m_compareBase.tabIndex, removedIndex);
+    m_compareBlend.tabIndex = adjust(m_compareBlend.tabIndex, removedIndex);
+
+    // Images are snapshotted, so they survive tab closure.
+    // Only update the tab indices for focus navigation.
+}
+
+void App::UploadCompareTextures()
+{
+    // Upload base as primary image
+    if (m_compareBase.image.IsLoaded())
+        m_renderer.UploadImage(m_compareBase.image);
+
+    // Upload blend as compare image
+    if (m_compareBlend.image.IsLoaded())
+        m_renderer.UploadCompareImage(m_compareBlend.image);
+
+    // Viewport dimensions always track the base (left) image.
+    // When base dimensions change: scale zoom to preserve visual size,
+    // then adjust pan to keep the screen center fixed.
+    if (m_compareBase.image.IsLoaded())
+    {
+        float newW = static_cast<float>(m_compareBase.image.width);
+        float newH = static_cast<float>(m_compareBase.image.height);
+        if (newW != m_savedImageWidth || newH != m_savedImageHeight)
+        {
+            // Scale zoom so the image occupies the same screen area
+            float scale = m_savedImageWidth / newW;
+            float oldZoom = m_viewport.zoom;
+            m_viewport.zoom *= scale;
+
+            // Adjust pan to keep center fixed at the new zoom
+            float cx = m_viewport.panX + m_savedImageWidth * oldZoom * 0.5f;
+            float cy = m_viewport.panY + m_savedImageHeight * oldZoom * 0.5f;
+            m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+            m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+
+            m_savedImageWidth = newW;
+            m_savedImageHeight = newH;
+        }
+    }
+    m_viewport.imageWidth = m_savedImageWidth;
+    m_viewport.imageHeight = m_savedImageHeight;
+
+    // Clamp zoom to the valid range for the new dimensions so the first
+    // scroll interaction doesn't jump due to a deferred clamp.
+    m_viewport.zoom = (std::max)(m_viewport.MinZoom(),
+                                 (std::min)(m_viewport.zoom, m_viewport.MaxZoom()));
+    m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
+}
+
+std::wstring App::MakeSourceLabel() const
+{
+    if (m_activeTab < 0 || m_activeTab >= static_cast<int>(m_openTabs.size()))
+        return L"(none)";
+
+    const auto& tab = m_openTabs[m_activeTab];
+    std::wstring label = ExtractFilename(tab.path);
+
+    // Append layer label (same format as the sidebar layer list)
+    int layer = m_activeLayer;
+    if (layer >= 0 && layer < static_cast<int>(m_layerInfo.layers.size()) &&
+        m_layerInfo.layers.size() > 1)
+    {
+        label += L" - ";
+        label += FormatLayerLabel(m_layerInfo.layers[layer]);
+    }
+    return label;
+}
+
+void App::SyncComparePanel()
+{
+    Sidebar& sb = m_window.GetSidebar();
+    if (m_compareMode == CompareMode::Off)
+    {
+        sb.ClearCompareState();
+        return;
+    }
+
+    sb.SetCompareState(static_cast<int>(m_compareMode),
+                       m_compareBase.label.c_str(), m_compareBlend.label.c_str(),
+                       m_compareFocused);
+}
+
 void App::UpdateImageStatusText()
 {
+    // Compare mode: sidebar handles detailed state, status bar just shows mode
+    if (m_compareMode != CompareMode::Off)
+    {
+        static const wchar_t* kModeNames[] = {L"", L"Split", L"Difference", L"Add", L"Over"};
+        int idx = static_cast<int>(m_compareMode);
+        if (idx >= 1 && idx <= 4)
+            m_window.SetStatusText(2, (std::wstring(L" Compare: ") + kModeNames[idx]).c_str());
+        return;
+    }
+
     if (!m_image.IsLoaded())
         return;
 
