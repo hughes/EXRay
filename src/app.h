@@ -10,6 +10,7 @@
 #include "histogram.h"
 #include "image.h"
 #include "renderer.h"
+#include "sequence.h"
 #include "timing.h"
 #include "update_checker.h"
 #include "viewport.h"
@@ -129,7 +130,16 @@ class App
         HistogramData histogram;
         ExrFileInfo layerInfo;
         int activeLayer = 0;
+        SequenceInfo sequence; // empty if not a sequence
     };
+
+    bool IsSequenceTab() const
+    {
+        return m_activeTab >= 0 && !m_openTabs[m_activeTab].sequence.frames.empty();
+    }
+    void NavigateSequence(int delta); // +1 next, -1 prev
+    void JumpToFrame(int frameNumber);
+    void SyncSequencePanel();
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
 

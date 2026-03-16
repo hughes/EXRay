@@ -162,6 +162,23 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
             m_needsRedraw = true;
         }
+        else if (vk == VK_LEFT && IsSequenceTab())
+        {
+            NavigateSequence(-1);
+        }
+        else if (vk == VK_RIGHT && IsSequenceTab())
+        {
+            NavigateSequence(1);
+        }
+        else if (vk == VK_HOME && IsSequenceTab())
+        {
+            NavigateSequence(-m_openTabs[m_activeTab].sequence.currentIndex);
+        }
+        else if (vk == VK_END && IsSequenceTab())
+        {
+            auto& seq = m_openTabs[m_activeTab].sequence;
+            NavigateSequence(seq.FrameCount() - 1 - seq.currentIndex);
+        }
         else if (vk == 'G')
         {
             m_showGrid = !m_showGrid;
@@ -242,6 +259,21 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_needsRedraw = true;
     };
     sidebar.onLayerSelect = [this](int layerIndex) { LoadLayer(layerIndex); };
+    sidebar.onSequenceNav = [this](int delta) { NavigateSequence(delta); };
+    sidebar.onSequenceFirst = [this]()
+    {
+        if (IsSequenceTab())
+            NavigateSequence(-m_openTabs[m_activeTab].sequence.currentIndex);
+    };
+    sidebar.onSequenceLast = [this]()
+    {
+        if (IsSequenceTab())
+        {
+            auto& seq = m_openTabs[m_activeTab].sequence;
+            NavigateSequence(seq.FrameCount() - 1 - seq.currentIndex);
+        }
+    };
+    sidebar.onSequenceJump = [this](int frameNumber) { JumpToFrame(frameNumber); };
     sidebar.onCompareMode = [this](int mode)
     {
         SetCompareMode(static_cast<CompareMode>(mode));
@@ -808,14 +840,29 @@ bool App::LoadFile(const std::wstring& path)
         m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
         m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
-        // In compare mode, keep viewport locked — dimensions and zoom/pan
-        // will be set by UploadCompareTextures via the caller.
-        if (m_compareMode == CompareMode::Off)
+        // In compare mode or sequence navigation, keep viewport locked.
+        // For sequences, preserve exposure/zoom/pan across frames.
+        if (m_compareMode == CompareMode::Off && !IsSequenceTab())
         {
             m_viewport.imageWidth = static_cast<float>(m_image.width);
             m_viewport.imageHeight = static_cast<float>(m_image.height);
             m_viewport.exposure = m_histogram.autoExposure;
             m_viewport.FitToWindow();
+        }
+        else if (m_compareMode == CompareMode::Off && IsSequenceTab())
+        {
+            // Sequence: update dimensions, keep exposure/zoom, adjust pan to keep center fixed
+            float newW = static_cast<float>(m_image.width);
+            float newH = static_cast<float>(m_image.height);
+            if (newW != m_viewport.imageWidth || newH != m_viewport.imageHeight)
+            {
+                float cx = m_viewport.panX + m_viewport.imageWidth * m_viewport.zoom * 0.5f;
+                float cy = m_viewport.panY + m_viewport.imageHeight * m_viewport.zoom * 0.5f;
+                m_viewport.imageWidth = newW;
+                m_viewport.imageHeight = newH;
+                m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+                m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+            }
         }
 
         wchar_t title[MAX_PATH + 16];
@@ -902,12 +949,47 @@ bool App::LoadLayer(int layerIndex)
     return false;
 }
 
+static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq)
+{
+    const wchar_t* fn = ExtractFilename(path);
+    if (seq.frames.empty())
+        return fn;
+
+    // "render [042 / 240]" — extract base name from prefix
+    const wchar_t* prefixFn = ExtractFilename(seq.prefix);
+    std::wstring baseName = prefixFn;
+    // Remove trailing separator (. or _)
+    if (!baseName.empty() && (baseName.back() == L'.' || baseName.back() == L'_'))
+        baseName.pop_back();
+    if (baseName.empty())
+        baseName = fn;
+
+    wchar_t buf[MAX_PATH];
+    swprintf_s(buf, L"%s [%03d / %d]", baseName.c_str(), seq.CurrentFrameNumber(), seq.FrameCount());
+    return buf;
+}
+
 void App::OpenFile(const std::wstring& path)
 {
-    // Check if file is already open (case-insensitive)
+    // Detect if this file belongs to a sequence
+    SequenceInfo seq = DetectSequence(path);
+
+    // Check if file (or its sequence) is already open
     for (int i = 0; i < static_cast<int>(m_openTabs.size()); ++i)
     {
-        if (_wcsicmp(m_openTabs[i].path.c_str(), path.c_str()) == 0)
+        if (!seq.frames.empty() && !m_openTabs[i].sequence.frames.empty())
+        {
+            // Same sequence? Check prefix + suffix match
+            if (_wcsicmp(m_openTabs[i].sequence.prefix.c_str(), seq.prefix.c_str()) == 0 &&
+                _wcsicmp(m_openTabs[i].sequence.suffix.c_str(), seq.suffix.c_str()) == 0)
+            {
+                // Switch to this tab and navigate to the requested frame
+                SwitchToTab(i);
+                JumpToFrame(seq.CurrentFrameNumber());
+                return;
+            }
+        }
+        else if (_wcsicmp(m_openTabs[i].path.c_str(), path.c_str()) == 0)
         {
             SwitchToTab(i);
             return;
@@ -919,18 +1001,22 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
-    m_openTabs.push_back({path,
-                          m_viewport.exposure,
-                          m_viewport.zoom,
-                          m_viewport.panX,
-                          m_viewport.panY,
-                          m_viewport.gamma,
-                          {},
-                          {},
-                          m_layerInfo,
-                          m_activeLayer});
+    OpenTab newTab = {path,
+                      m_viewport.exposure,
+                      m_viewport.zoom,
+                      m_viewport.panX,
+                      m_viewport.panY,
+                      m_viewport.gamma,
+                      {},
+                      {},
+                      m_layerInfo,
+                      m_activeLayer,
+                      std::move(seq)};
+
+    std::wstring tabTitle = FormatSequenceTabTitle(path, newTab.sequence);
+    m_openTabs.push_back(std::move(newTab));
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
-    m_window.AddTab(newIndex, ExtractFilename(path));
+    m_window.AddTab(newIndex, tabTitle.c_str());
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
     AddToRecentFiles(path);
@@ -942,6 +1028,8 @@ void App::OpenFile(const std::wstring& path)
         UploadCompareTextures();
         SyncComparePanel();
     }
+
+    SyncSequencePanel();
 }
 
 void App::SwitchToTab(int index)
@@ -994,6 +1082,7 @@ void App::SwitchToTab(int index)
 
     SyncSidebar();
     SyncComparePanel();
+    SyncSequencePanel();
     UpdateImageStatusText();
     m_needsRedraw = true;
 }
@@ -1283,6 +1372,76 @@ void App::UploadCompareTextures()
     m_viewport.zoom = (std::max)(m_viewport.MinZoom(),
                                  (std::min)(m_viewport.zoom, m_viewport.MaxZoom()));
     m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
+}
+
+void App::NavigateSequence(int delta)
+{
+    if (!IsSequenceTab())
+        return;
+
+    auto& seq = m_openTabs[m_activeTab].sequence;
+    int newIndex = seq.currentIndex + delta;
+    newIndex = (std::max)(0, (std::min)(newIndex, seq.FrameCount() - 1));
+    if (newIndex == seq.currentIndex)
+        return;
+
+    seq.currentIndex = newIndex;
+    const std::wstring& framePath = seq.CurrentPath();
+
+    // Update the tab's path to the new frame
+    m_openTabs[m_activeTab].path = framePath;
+
+    // Load the new frame
+    if (LoadFile(framePath))
+    {
+        // Update tab title in place (no remove/add to avoid layout flicker)
+        std::wstring title = FormatSequenceTabTitle(framePath, seq);
+        m_window.UpdateTabTitle(m_activeTab, title.c_str());
+
+        // Update window title
+        wchar_t windowTitle[MAX_PATH + 16];
+        swprintf_s(windowTitle, L"EXRay - %s", framePath.c_str());
+        m_window.SetTitle(windowTitle);
+
+        // In compare mode, update the focused source with the new frame
+        if (m_compareMode != CompareMode::Off)
+        {
+            SnapshotFocusedSource();
+            UploadCompareTextures();
+            SyncComparePanel();
+        }
+    }
+
+    SyncSequencePanel();
+}
+
+void App::JumpToFrame(int frameNumber)
+{
+    if (!IsSequenceTab())
+        return;
+
+    auto& seq = m_openTabs[m_activeTab].sequence;
+    int newIndex = seq.FindNearest(frameNumber);
+    if (newIndex < 0 || newIndex == seq.currentIndex)
+        return;
+
+    int delta = newIndex - seq.currentIndex;
+    NavigateSequence(delta);
+}
+
+void App::SyncSequencePanel()
+{
+    // TODO: wire to sidebar once sequence panel is built
+    Sidebar& sb = m_window.GetSidebar();
+    if (IsSequenceTab())
+    {
+        auto& seq = m_openTabs[m_activeTab].sequence;
+        sb.SetSequenceState(seq.CurrentFrameNumber(), seq.FrameCount());
+    }
+    else
+    {
+        sb.ClearSequenceState();
+    }
 }
 
 std::wstring App::MakeSourceLabel() const

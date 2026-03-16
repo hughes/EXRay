@@ -48,6 +48,10 @@ class Sidebar
     void SetCompareState(int mode, const wchar_t* labelA, const wchar_t* labelB, int focusedSource);
     void ClearCompareState();
 
+    // Sequence panel
+    void SetSequenceState(int currentFrame, int totalFrames);
+    void ClearSequenceState();
+
     // Callbacks
     ExposureChangeHandler onExposureChange;
     GammaChangeHandler onGammaChange;
@@ -58,6 +62,14 @@ class Sidebar
     CompareActionHandler onCompareSwap;
     CompareActionHandler onCompareFocusA;
     CompareActionHandler onCompareFocusB;
+
+    // Sequence callbacks
+    using SequenceNavHandler = std::function<void(int delta)>; // +1/-1 for next/prev
+    using SequenceJumpHandler = std::function<void(int frameNumber)>;
+    SequenceNavHandler onSequenceNav;
+    CompareActionHandler onSequenceFirst;
+    CompareActionHandler onSequenceLast;
+    SequenceJumpHandler onSequenceJump;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -120,4 +132,24 @@ class Sidebar
     static constexpr int kCompareModeBtnBaseId = 2020;   // 2020..2024 (None, Split, Diff, Add, Over)
     static constexpr int kCompareFocusBtnBaseId = 2025;  // 2025..2026
     static constexpr int kCompareActionBtnBaseId = 2030; // 2030..2032
+
+    // Sequence controls
+    static constexpr int kSeqFirstBtnId = 2040;
+    static constexpr int kSeqPrevBtnId = 2041;
+    static constexpr int kSeqNextBtnId = 2042;
+    static constexpr int kSeqLastBtnId = 2043;
+    static constexpr int kSeqFrameEditId = 2044;
+
+    HWND m_seqFirstBtn = nullptr;
+    HWND m_seqPrevBtn = nullptr;
+    HWND m_seqNextBtn = nullptr;
+    HWND m_seqLastBtn = nullptr;
+    HWND m_seqFrameEdit = nullptr;
+    int m_seqCurrentFrame = 0;
+    int m_seqTotalFrames = 0;
+    bool m_seqActive = false;
+    int m_seqRepeatDelta = 0;      // +1 or -1 while holding nav button
+    static constexpr UINT_PTR kSeqRepeatTimerId = 100;
+    static constexpr int kSeqRepeatInitialMs = 300;
+    static constexpr int kSeqRepeatMs = 80;
 };

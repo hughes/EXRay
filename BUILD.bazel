@@ -51,6 +51,8 @@ cc_binary(
         "src/test_util.h",
         "src/viewport.h",
         "src/viewport.cpp",
+        "src/sequence.h",
+        "src/sequence.cpp",
         "src/timing.h",
         "src/crash_handler.h",
         "src/update_checker.h",
@@ -167,4 +169,14 @@ cc_test(
     srcs = ["tests/channel_mapping_test.cpp"],
     includes = ["src"],
     deps = [":image_lib"],
+)
+
+cc_test(
+    name = "sequence_test",
+    srcs = [
+        "tests/sequence_test.cpp",
+        "src/sequence.h",
+        "src/sequence.cpp",
+    ],
+    includes = ["src"],
 )

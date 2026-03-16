@@ -129,6 +129,68 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
         0, WC_BUTTONW, L"Swap", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
         reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareActionBtnBaseId)), hInstance, nullptr);
 
+    // Sequence navigation buttons (hidden until sequence is active)
+    m_seqFirstBtn = CreateWindowExW(0, WC_BUTTONW, L"\u00AB", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqFirstBtnId)), hInstance, nullptr);
+    m_seqPrevBtn = CreateWindowExW(0, WC_BUTTONW, L"\u2039", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqPrevBtnId)), hInstance, nullptr);
+    m_seqNextBtn = CreateWindowExW(0, WC_BUTTONW, L"\u203A", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqNextBtnId)), hInstance, nullptr);
+    m_seqLastBtn = CreateWindowExW(0, WC_BUTTONW, L"\u00BB", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqLastBtnId)), hInstance, nullptr);
+    m_seqFrameEdit =
+        CreateWindowExW(0, WC_EDITW, L"", WS_CHILD | WS_BORDER | ES_CENTER, 0, 0, 0, 0, m_hwnd,
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqFrameEditId)), hInstance, nullptr);
+    Theme::ApplyToControl(m_seqFrameEdit);
+    // Subclass prev/next buttons for hold-to-repeat
+    auto navBtnSubclass = [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR id,
+                             DWORD_PTR refData) -> LRESULT
+    {
+        Sidebar* self = reinterpret_cast<Sidebar*>(refData);
+        if (msg == WM_LBUTTONDOWN)
+        {
+            self->m_seqRepeatDelta = (GetDlgCtrlID(hwnd) == kSeqPrevBtnId) ? -1 : 1;
+            SetTimer(self->m_hwnd, kSeqRepeatTimerId, kSeqRepeatInitialMs, nullptr);
+        }
+        else if (msg == WM_LBUTTONUP || msg == WM_CAPTURECHANGED)
+        {
+            KillTimer(self->m_hwnd, kSeqRepeatTimerId);
+            self->m_seqRepeatDelta = 0;
+        }
+        return DefSubclassProc(hwnd, msg, wParam, lParam);
+    };
+    SetWindowSubclass(m_seqPrevBtn, navBtnSubclass, 0, reinterpret_cast<DWORD_PTR>(this));
+    SetWindowSubclass(m_seqNextBtn, navBtnSubclass, 0, reinterpret_cast<DWORD_PTR>(this));
+
+    // Subclass the edit to handle Enter key (must eat both WM_KEYDOWN and WM_CHAR
+    // to prevent the system beep that single-line edits produce on Enter)
+    SetWindowSubclass(
+        m_seqFrameEdit,
+        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR refData) -> LRESULT
+        {
+            if (msg == WM_KEYDOWN && wParam == VK_RETURN)
+            {
+                SetFocus(GetParent(hwnd));
+                return 0;
+            }
+            if (msg == WM_CHAR && wParam == L'\r')
+                return 0; // suppress beep
+            // Ctrl+Backspace: delete from caret back to start
+            if (msg == WM_CHAR && wParam == 0x7F)
+            {
+                DWORD start = 0, end = 0;
+                SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+                SendMessageW(hwnd, EM_SETSEL, 0, start);
+                SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
+                return 0;
+            }
+            // Silently ignore non-digit characters (allow control chars like backspace)
+            if (msg == WM_CHAR && wParam >= L' ' && (wParam < L'0' || wParam > L'9'))
+                return 0;
+            return DefSubclassProc(hwnd, msg, wParam, lParam);
+        },
+        0, 0);
+
     // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
     m_layerList = CreateWindowExW(
         0, WC_LISTBOXW, nullptr,
@@ -150,6 +212,8 @@ void Sidebar::SetFont(HFONT font)
         SendMessageW(m_autoExpButton, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_layerList)
         SendMessageW(m_layerList, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    if (m_seqFrameEdit)
+        SendMessageW(m_seqFrameEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -190,6 +254,11 @@ void Sidebar::SetEnabled(bool enabled)
         EnableWindow(btn, enabled);
     if (m_compareSwapBtn)
         EnableWindow(m_compareSwapBtn, enabled);
+    EnableWindow(m_seqFirstBtn, enabled);
+    EnableWindow(m_seqPrevBtn, enabled);
+    EnableWindow(m_seqNextBtn, enabled);
+    EnableWindow(m_seqLastBtn, enabled);
+    EnableWindow(m_seqFrameEdit, enabled);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -254,6 +323,40 @@ void Sidebar::SetCompareState(int mode, const wchar_t* labelBase, const wchar_t*
 void Sidebar::ClearCompareState()
 {
     SetCompareState(0, nullptr, nullptr, 0);
+}
+
+void Sidebar::SetSequenceState(int currentFrame, int totalFrames)
+{
+    m_seqActive = true;
+    m_seqCurrentFrame = currentFrame;
+    m_seqTotalFrames = totalFrames;
+
+    ShowWindow(m_seqFirstBtn, SW_SHOW);
+    ShowWindow(m_seqPrevBtn, SW_SHOW);
+    ShowWindow(m_seqNextBtn, SW_SHOW);
+    ShowWindow(m_seqLastBtn, SW_SHOW);
+    ShowWindow(m_seqFrameEdit, SW_SHOW);
+
+    wchar_t buf[16];
+    swprintf_s(buf, L"%d", currentFrame);
+    SetWindowTextW(m_seqFrameEdit, buf);
+
+    LayoutControls();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+void Sidebar::ClearSequenceState()
+{
+    if (!m_seqActive)
+        return;
+    m_seqActive = false;
+    ShowWindow(m_seqFirstBtn, SW_HIDE);
+    ShowWindow(m_seqPrevBtn, SW_HIDE);
+    ShowWindow(m_seqNextBtn, SW_HIDE);
+    ShowWindow(m_seqLastBtn, SW_HIDE);
+    ShowWindow(m_seqFrameEdit, SW_HIDE);
+    LayoutControls();
+    InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
 void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
@@ -359,8 +462,8 @@ void Sidebar::LayoutControls()
     // Histogram area is painted in OnPaint — just skip past it
     y += histH + MulDiv(4, dpi, 96);
 
-    // 5 channel + 5 mode + 2 focus + 1 swap + exposure + auto + gamma + layerlist = 17
-    HDWP hdwp = BeginDeferWindowPos(17);
+    // 5 channel + 5 mode + 2 focus + 1 swap + 4 seq btns + 1 seq edit + exposure + auto + gamma + layerlist = 22
+    HDWP hdwp = BeginDeferWindowPos(22);
 
     // Channel buttons — adjacent, forming a single button group
     {
@@ -418,6 +521,32 @@ void Sidebar::LayoutControls()
             hdwp = DeferWindowPos(hdwp, m_compareSwapBtn, nullptr, x, y, m + totalW - x, buttonH,
                                   SWP_NOZORDER | SWP_NOACTIVATE);
         }
+        y += buttonH + m;
+    }
+
+    // --- Sequence panel (only when sequence is active) ---
+    if (m_seqActive)
+    {
+        // "Sequence" label drawn in OnPaint
+        y += labelH + MulDiv(2, dpi, 96);
+
+        // [<<] [<] [  frame edit  ] [>] [>>]
+        int navBtnW = MulDiv(28, dpi, 96);
+        int editW = w - 2 * m - 4 * navBtnW;
+        if (editW < MulDiv(40, dpi, 96))
+            editW = MulDiv(40, dpi, 96);
+
+        int x = m;
+        hdwp = DeferWindowPos(hdwp, m_seqFirstBtn, nullptr, x, y, navBtnW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += navBtnW;
+        hdwp = DeferWindowPos(hdwp, m_seqPrevBtn, nullptr, x, y, navBtnW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += navBtnW;
+        hdwp = DeferWindowPos(hdwp, m_seqFrameEdit, nullptr, x, y, editW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += editW;
+        hdwp = DeferWindowPos(hdwp, m_seqNextBtn, nullptr, x, y, navBtnW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += navBtnW;
+        hdwp = DeferWindowPos(hdwp, m_seqLastBtn, nullptr, x, y, navBtnW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+
         y += buttonH + m;
     }
 
@@ -805,6 +934,19 @@ void Sidebar::OnPaint()
         y += MulDiv(22, dpi, 96) + m;
     }
 
+    // --- Sequence section (only when active) ---
+    if (m_seqActive)
+    {
+        RECT seqLabelRect = {m, y, w - m, y + labelH};
+        wchar_t seqLabel[64];
+        swprintf_s(seqLabel, L"Sequence (%d frames)", m_seqTotalFrames);
+        DrawTextW(memDC, seqLabel, -1, &seqLabelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
+        y += labelH + MulDiv(2, dpi, 96);
+
+        // Skip nav buttons row
+        y += MulDiv(22, dpi, 96) + m;
+    }
+
     // --- Exposure section ---
     wchar_t expLabel[64];
     swprintf_s(expLabel, L"Exposure: %+.2f EV", m_exposure);
@@ -946,6 +1088,35 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         {
             if (self->onCompareSwap)
                 self->onCompareSwap();
+        }
+        else if (id == kSeqFirstBtnId && code == BN_CLICKED)
+        {
+            if (self->onSequenceFirst)
+                self->onSequenceFirst();
+        }
+        else if (id == kSeqPrevBtnId && code == BN_CLICKED)
+        {
+            if (self->onSequenceNav)
+                self->onSequenceNav(-1);
+        }
+        else if (id == kSeqNextBtnId && code == BN_CLICKED)
+        {
+            if (self->onSequenceNav)
+                self->onSequenceNav(1);
+        }
+        else if (id == kSeqLastBtnId && code == BN_CLICKED)
+        {
+            if (self->onSequenceLast)
+                self->onSequenceLast();
+        }
+        else if (id == kSeqFrameEditId && code == EN_KILLFOCUS)
+        {
+            // User finished editing the frame number — jump to it
+            wchar_t buf[16] = {};
+            GetWindowTextW(self->m_seqFrameEdit, buf, 16);
+            int frameNum = _wtoi(buf);
+            if (frameNum >= 0 && self->onSequenceJump)
+                self->onSequenceJump(frameNum);
         }
         else if (id == kLayerListId && code == LBN_SELCHANGE)
         {
@@ -1185,6 +1356,36 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             return TRUE;
         }
 
+        // Owner-drawn sequence nav buttons (same style as Auto)
+        if (dis->CtlID >= static_cast<UINT>(kSeqFirstBtnId) &&
+            dis->CtlID <= static_cast<UINT>(kSeqLastBtnId))
+        {
+            bool pressed = (dis->itemState & ODS_SELECTED) != 0;
+            bool disabled = (dis->itemState & ODS_DISABLED) != 0;
+            COLORREF bgColor = pressed ? Colors::ButtonPressed : Colors::Background;
+            HBRUSH bg = CreateSolidBrush(bgColor);
+            FillRect(dis->hDC, &dis->rcItem, bg);
+            DeleteObject(bg);
+
+            HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
+            HPEN oldPen = static_cast<HPEN>(SelectObject(dis->hDC, borderPen));
+            HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(dis->hDC, GetStockObject(NULL_BRUSH)));
+            Rectangle(dis->hDC, dis->rcItem.left, dis->rcItem.top, dis->rcItem.right, dis->rcItem.bottom);
+            SelectObject(dis->hDC, oldPen);
+            SelectObject(dis->hDC, oldBr);
+            DeleteObject(borderPen);
+
+            SetBkMode(dis->hDC, TRANSPARENT);
+            SetTextColor(dis->hDC, disabled ? Colors::TextDim : Colors::TextPrimary);
+            HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+            HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
+            wchar_t label[8] = {};
+            GetWindowTextW(dis->hwndItem, label, 8);
+            DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
+            SelectObject(dis->hDC, oldFont);
+            return TRUE;
+        }
+
         // Owner-drawn compare swap button (same style as Auto)
         if (dis->CtlID == static_cast<UINT>(kCompareActionBtnBaseId))
         {
@@ -1338,12 +1539,31 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
         return TRUE;
     }
 
+    case WM_TIMER:
+        if (wParam == kSeqRepeatTimerId && self->m_seqRepeatDelta != 0)
+        {
+            // After the initial delay, switch to faster repeat rate
+            SetTimer(hwnd, kSeqRepeatTimerId, kSeqRepeatMs, nullptr);
+            if (self->onSequenceNav)
+                self->onSequenceNav(self->m_seqRepeatDelta);
+        }
+        return 0;
+
     case WM_ERASEBKGND:
         return 1;
 
+    case WM_CTLCOLOREDIT:
+    {
+        HDC childDC = reinterpret_cast<HDC>(wParam);
+        SetBkColor(childDC, Colors::Surface);
+        SetTextColor(childDC, Colors::TextPrimary);
+        static HBRUSH surfaceBrush = nullptr;
+        if (!surfaceBrush)
+            surfaceBrush = CreateSolidBrush(Colors::Surface);
+        return reinterpret_cast<LRESULT>(surfaceBrush);
+    }
     case WM_CTLCOLORSTATIC:
     case WM_CTLCOLORLISTBOX:
-    case WM_CTLCOLOREDIT:
     case WM_CTLCOLORSCROLLBAR:
     {
         HDC childDC = reinterpret_cast<HDC>(wParam);

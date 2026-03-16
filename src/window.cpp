@@ -529,6 +529,17 @@ void Window::AddTab(int index, const wchar_t* label)
     LayoutChildren();
 }
 
+void Window::UpdateTabTitle(int index, const wchar_t* label)
+{
+    if (!m_tabBar)
+        return;
+    TCITEMW tci = {};
+    tci.mask = TCIF_TEXT;
+    tci.pszText = const_cast<wchar_t*>(label);
+    TabCtrl_SetItem(m_tabBar, index, &tci);
+    InvalidateRect(m_tabBar, nullptr, FALSE);
+}
+
 void Window::RemoveTab(int index)
 {
     if (!m_tabBar)
