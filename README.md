@@ -10,8 +10,12 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 - **Instant loading** - D3D11 hardware-accelerated rendering
 - **HDR display support** - auto-detects HDR-capable monitors and outputs scRGB linear
 - **Exposure & gamma control** - adjust EV stops and gamma with real-time controls
-- **Sidebar** - layer browser, histogram, and exposure/gamma controls
+- **Sidebar** - layer browser, histogram, exposure/gamma, sequence, and compare controls
 - **Multi-layer & multi-channel** - browse EXR layers in a tree view, inspect individual channels
+- **Image sequences** - auto-detects numbered frames (`render.0001.exr`…); step through frames or play them back smoothly, prefetched into RAM
+- **Playback** - play/pause, adjustable frame rate, loop / play-once / ping-pong, and a scrubbable timeline that shows prefetch buffering
+- **Compare two images** - Split, Difference, Add, or Over blending of any two images, layers, or frames
+- **Per-layer exposure** - each layer (e.g. RGB vs. Z depth) keeps its own auto-computed exposure
 - **Histogram overlay** - per-channel histogram with luminance
 - **Pixel inspector** - live RGBA readout under cursor in the status bar and right-click to copy
 - **Pixel grid** - sub-pixel grid overlay that fades in at high zoom levels
@@ -28,11 +32,11 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Scanline images | Full |
 | Tiled images | Full |
 | All compressions (PIZ, ZIP, ZIPS, RLE, PXR24, B44, B44A, DWAA, DWAB, HTJ2K) | Full |
-| Half-float (16-bit) pixels | Full (converted to 32-bit internally) |
+| Half-float (16-bit) pixels | Full (stored natively as 16-bit half) |
 | Float (32-bit) pixels | Full |
 | Luminance/chroma (Y/C) images | Full (auto-converted to RGBA) |
 | Data window offsets | Full |
-| Multi-part images | First part only |
+| Multi-part images | Full (browse every part's layers via sidebar) |
 | Multi-view / stereo | Default view only |
 | Deep images | Not supported |
 | Integer pixel types | Not supported |
@@ -48,6 +52,9 @@ A fast, native, HDR-first EXR image viewer for Windows. Hardware-accelerated and
 | Reload | `Ctrl+R` |
 | Close tab | `Ctrl+W` |
 | Next / previous tab | `Ctrl+Tab` / `Ctrl+Shift+Tab` |
+| Next / previous frame (sequence) | `→` / `←` |
+| First / last frame (sequence) | `Home` / `End` |
+| Play / pause (sequence) | `Space` |
 | Fit to window | `Ctrl+0` |
 | Actual size (1:1) | `Ctrl+1` |
 | Zoom | Scroll · pinch (centered on cursor) |
