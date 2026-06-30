@@ -1071,79 +1071,95 @@ bool App::LoadLayer(int layerIndex)
     if (m_activeTab < 0 || layerIndex < 0 || layerIndex >= static_cast<int>(m_layerInfo.layers.size()))
         return false;
 
-    std::string errorMsg;
-    ImageData newImage;
     const std::wstring& path = m_openTabs[m_activeTab].path;
+    const int prevLayer = m_activeLayer;
 
-    if (ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], newImage, errorMsg))
+    // Point the prefetch cache at the target layer first, so we can serve the
+    // current frame from RAM if it's already warm (skips a ~125ms decode). For a
+    // non-sequence tab the cache is inactive and TryGet just misses.
+    m_activeLayer = layerIndex;
+    EnsureSequenceCache();
+    const int frameIdx = IsSequenceTab() ? m_openTabs[m_activeTab].sequence.currentIndex : -1;
+
+    ImageData img;
+    bool fromCache = (frameIdx >= 0 && m_seqCache.TryGet(frameIdx, img));
+    if (!fromCache)
     {
-        // When switching between mip levels of the same layer, scale zoom
-        // so the image occupies the same screen space
-        const auto& oldLayer = m_layerInfo.layers[m_activeLayer];
-        const auto& newLayer = m_layerInfo.layers[layerIndex];
-        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
-                           oldLayer.partIndex == newLayer.partIndex;
-
-        float oldWidth = m_viewport.imageWidth;
-
-        // Save the outgoing layer's exposure before switching.
-        if (m_layerExposure.size() != m_layerInfo.layers.size())
-            m_layerExposure.resize(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
-        if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
-            m_layerExposure[m_activeLayer] = m_viewport.exposure;
-
-        m_image = std::move(newImage);
-        m_renderer.UploadImage(m_image);
-        m_histogram = HistogramComputer::Compute(m_image);
-        m_activeLayer = layerIndex;
-
-        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
-        m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
-        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
-
-        if (m_compareMode != CompareMode::Off)
+        std::string errorMsg;
+        if (!ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], img, errorMsg))
         {
-            // In compare mode, keep viewport locked — don't change
-            // imageWidth/Height or zoom. Just snapshot and re-upload.
-            SnapshotFocusedSource();
-            UploadCompareTextures();
-            SyncComparePanel();
-        }
-        else
-        {
-            m_viewport.imageWidth = static_cast<float>(m_image.width);
-            m_viewport.imageHeight = static_cast<float>(m_image.height);
-
-            if (isMipSwitch && oldWidth > 0.0f)
-                m_viewport.zoom =
-                    (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
-
-            // Restore this layer's exposure, auto-computing it the first time it's
-            // viewed (depth vs RGB need very different exposures).
-            if (m_activeLayer < static_cast<int>(m_layerExposure.size()))
+            m_activeLayer = prevLayer; // revert
+            if (!m_smokeTest)
             {
-                if (std::isnan(m_layerExposure[m_activeLayer]))
-                    m_layerExposure[m_activeLayer] = m_histogram.isValid ? m_histogram.autoExposure : m_viewport.exposure;
-                m_viewport.exposure = m_layerExposure[m_activeLayer];
+                int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
+                std::wstring wideError(len, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
+                MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
             }
+            return false;
         }
+        if (frameIdx >= 0)
+            m_seqCache.Put(frameIdx, img); // seed so the worker doesn't redecode it
+    }
 
-        SyncSidebar();
-        UpdateImageStatusText();
-        // Re-point the prefetch cache at this layer so it warms in the background
-        // (no-op for non-sequence tabs).
-        EnsureSequenceCache();
-        m_needsRedraw = true;
-        return true;
-    }
-    else if (!m_smokeTest)
+    // When switching between mip levels of the same layer, scale zoom so the
+    // image occupies the same screen space.
+    const auto& oldLayer = m_layerInfo.layers[prevLayer];
+    const auto& newLayer = m_layerInfo.layers[layerIndex];
+    bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
+                       oldLayer.partIndex == newLayer.partIndex;
+    float oldWidth = m_viewport.imageWidth;
+
+    // Save the outgoing layer's exposure before switching.
+    if (m_layerExposure.size() != m_layerInfo.layers.size())
+        m_layerExposure.resize(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
+    if (prevLayer >= 0 && prevLayer < static_cast<int>(m_layerExposure.size()))
+        m_layerExposure[prevLayer] = m_viewport.exposure;
+
+    m_image = std::move(img);
+    m_renderer.UploadImage(m_image);
+    // m_activeLayer is already layerIndex.
+
+    // The full histogram (~200ms) is only needed up front to auto-compute a
+    // layer's exposure the first time it's viewed; otherwise defer it to idle.
+    bool firstView = (layerIndex < static_cast<int>(m_layerExposure.size())) && std::isnan(m_layerExposure[layerIndex]);
+    if (firstView)
+        m_histogram = HistogramComputer::Compute(m_image);
+    else
+        m_histogramDirty = true;
+
+    // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+    m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+
+    if (m_compareMode != CompareMode::Off)
     {
-        int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
-        std::wstring wideError(len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
-        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+        SnapshotFocusedSource();
+        UploadCompareTextures();
+        SyncComparePanel();
     }
-    return false;
+    else
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+
+        if (isMipSwitch && oldWidth > 0.0f)
+            m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
+
+        // Restore this layer's exposure, auto-computing it the first time it's
+        // viewed (depth vs RGB need very different exposures).
+        if (layerIndex < static_cast<int>(m_layerExposure.size()))
+        {
+            if (std::isnan(m_layerExposure[layerIndex]))
+                m_layerExposure[layerIndex] = m_histogram.isValid ? m_histogram.autoExposure : m_viewport.exposure;
+            m_viewport.exposure = m_layerExposure[layerIndex];
+        }
+    }
+
+    SyncSidebar();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+    return true;
 }
 
 static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq)
