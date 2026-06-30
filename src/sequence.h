@@ -12,16 +12,16 @@
 
 struct SequenceFrame
 {
-    int frameNumber;     // parsed from filename (e.g. 42)
-    std::wstring path;   // full path to this frame's file
+    int frameNumber;   // parsed from filename (e.g. 42)
+    std::wstring path; // full path to this frame's file
 };
 
 struct SequenceInfo
 {
-    std::wstring prefix; // e.g. "C:/renders/render."
-    std::wstring suffix; // e.g. ".exr"
+    std::wstring prefix;               // e.g. "C:/renders/render."
+    std::wstring suffix;               // e.g. ".exr"
     std::vector<SequenceFrame> frames; // sorted by frameNumber
-    int currentIndex = 0; // index into frames vector
+    int currentIndex = 0;              // index into frames vector
 
     int CurrentFrameNumber() const
     {
@@ -30,10 +30,7 @@ struct SequenceInfo
         return -1;
     }
 
-    const std::wstring& CurrentPath() const
-    {
-        return frames[currentIndex].path;
-    }
+    const std::wstring& CurrentPath() const { return frames[currentIndex].path; }
 
     int FrameCount() const { return static_cast<int>(frames.size()); }
 

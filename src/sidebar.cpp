@@ -40,7 +40,7 @@ static LRESULT CALLBACK NumericEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPAR
         return 0;
     }
     if (msg == WM_CHAR && wParam == L'\r')
-        return 0; // suppress beep
+        return 0;                         // suppress beep
     if (msg == WM_CHAR && wParam == 0x7F) // Ctrl+Backspace: delete from caret back to start
     {
         DWORD start = 0, end = 0;
@@ -152,9 +152,9 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
         }
     }
     // Compare swap button (hidden until compare active)
-    m_compareSwapBtn = CreateWindowExW(
-        0, WC_BUTTONW, L"Swap", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
-        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareActionBtnBaseId)), hInstance, nullptr);
+    m_compareSwapBtn =
+        CreateWindowExW(0, WC_BUTTONW, L"Swap", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kCompareActionBtnBaseId)), hInstance, nullptr);
 
     // Sequence navigation buttons (hidden until sequence is active)
     m_seqFirstBtn = CreateWindowExW(0, WC_BUTTONW, L"\u00AB", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
@@ -204,9 +204,9 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     // (Timeline is custom-drawn in OnPaint — no child control.)
 
     // Tooltips for the playback controls (the fps field is just a number otherwise).
-    m_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
-                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_hwnd, nullptr, hInstance,
-                                nullptr);
+    m_tooltip =
+        CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX, CW_USEDEFAULT,
+                        CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_hwnd, nullptr, hInstance, nullptr);
     if (m_tooltip)
     {
         SendMessageW(m_tooltip, TTM_SETMAXTIPWIDTH, 0, 300);
@@ -361,10 +361,7 @@ void Sidebar::SetCompareState(int mode, const wchar_t* labelBase, const wchar_t*
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
-void Sidebar::ClearCompareState()
-{
-    SetCompareState(0, nullptr, nullptr, 0);
-}
+void Sidebar::ClearCompareState() { SetCompareState(0, nullptr, nullptr, 0); }
 
 void Sidebar::SetSequenceState(int currentIndex, int currentFrame, int totalFrames)
 {
@@ -919,7 +916,8 @@ void Sidebar::LayoutControls()
         x += playW + gap;
         hdwp = DeferWindowPos(hdwp, m_seqFpsEdit, nullptr, x, y, fpsW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
         x += fpsW + gap;
-        hdwp = DeferWindowPos(hdwp, m_seqLoopBtn, nullptr, x, y, m + totalW - x, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        hdwp =
+            DeferWindowPos(hdwp, m_seqLoopBtn, nullptr, x, y, m + totalW - x, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
 
         y += buttonH + gap;
 

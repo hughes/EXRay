@@ -310,10 +310,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         // Loop/Once only go forward, so prefetch pure forward-wrap.
         m_seqCache.SetReverseLookback(mode == 2 ? 8 : 0);
     };
-    sidebar.onCompareMode = [this](int mode)
-    {
-        SetCompareMode(static_cast<CompareMode>(mode));
-    };
+    sidebar.onCompareMode = [this](int mode) { SetCompareMode(static_cast<CompareMode>(mode)); };
     sidebar.onCompareSwap = [this]() { SwapCompareSources(); };
     sidebar.onCompareFocusA = [this]()
     {
@@ -696,8 +693,7 @@ void App::Render()
         vp.splitX = m_splitX * m_viewport.clientWidth;
         vp.compareGain = m_compareGain;
 
-        if (m_compareMode != CompareMode::Off &&
-            m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+        if (m_compareMode != CompareMode::Off && m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
         {
             PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
             PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
@@ -745,7 +741,7 @@ void App::OnCommand(int commandId)
             m_openTabs[m_activeTab].exposure = m_viewport.exposure;
             if (seqTab)
             {
-                EnsureSequenceCache();                                              // re-warm from disk
+                EnsureSequenceCache();                                                  // re-warm from disk
                 m_seqCache.Put(m_openTabs[m_activeTab].sequence.currentIndex, m_image); // seed the reloaded frame
             }
         }
@@ -962,8 +958,7 @@ void App::OnResize(int width, int height)
             vp.splitX = m_splitX * m_viewport.clientWidth;
             vp.compareGain = m_compareGain;
 
-            if (m_compareMode != CompareMode::Off &&
-                m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+            if (m_compareMode != CompareMode::Off && m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
             {
                 PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
                 PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
@@ -1248,17 +1243,9 @@ void App::OpenFile(const std::wstring& rawPath)
     if (!LoadFile(path))
         return;
 
-    OpenTab newTab = {path,
-                      m_viewport.exposure,
-                      m_viewport.zoom,
-                      m_viewport.panX,
-                      m_viewport.panY,
-                      m_viewport.gamma,
-                      {},
-                      {},
-                      m_layerInfo,
-                      m_activeLayer,
-                      std::move(seq)};
+    OpenTab newTab = {
+        path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {},
+        {},   m_layerInfo,         m_activeLayer,   std::move(seq)};
 
     std::wstring tabTitle = FormatSequenceTabTitle(path, newTab.sequence);
     m_openTabs.push_back(std::move(newTab));
@@ -1550,8 +1537,7 @@ void App::SetCompareFocus(int source)
     // Switch to the focused source's tab so the layer list, active file,
     // and tab bar are all in sync.
     const CompareSource& src = (source == 1) ? m_compareBlend : m_compareBase;
-    if (src.tabIndex >= 0 && src.tabIndex < static_cast<int>(m_openTabs.size()) &&
-        src.tabIndex != m_activeTab)
+    if (src.tabIndex >= 0 && src.tabIndex < static_cast<int>(m_openTabs.size()) && src.tabIndex != m_activeTab)
     {
         // Temporarily exit compare to prevent SwitchToTab from auto-snapshotting
         // (we're just navigating, not changing the source)
@@ -1643,8 +1629,7 @@ void App::UploadCompareTextures()
 
     // Clamp zoom to the valid range for the new dimensions so the first
     // scroll interaction doesn't jump due to a deferred clamp.
-    m_viewport.zoom = (std::max)(m_viewport.MinZoom(),
-                                 (std::min)(m_viewport.zoom, m_viewport.MaxZoom()));
+    m_viewport.zoom = (std::max)(m_viewport.MinZoom(), (std::min)(m_viewport.zoom, m_viewport.MaxZoom()));
     m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
 }
 
@@ -1671,10 +1656,7 @@ size_t App::SequenceCacheBudget()
     return size_t(2) * 1024 * 1024 * 1024;
 }
 
-std::wstring App::SequenceCacheId(const SequenceInfo& seq)
-{
-    return seq.prefix + L"\x1f" + seq.suffix;
-}
+std::wstring App::SequenceCacheId(const SequenceInfo& seq) { return seq.prefix + L"\x1f" + seq.suffix; }
 
 void App::EnsureSequenceCache()
 {
@@ -1859,8 +1841,7 @@ std::wstring App::MakeSourceLabel() const
 
     // Append layer label (same format as the sidebar layer list)
     int layer = m_activeLayer;
-    if (layer >= 0 && layer < static_cast<int>(m_layerInfo.layers.size()) &&
-        m_layerInfo.layers.size() > 1)
+    if (layer >= 0 && layer < static_cast<int>(m_layerInfo.layers.size()) && m_layerInfo.layers.size() > 1)
     {
         label += L" - ";
         label += FormatLayerLabel(m_layerInfo.layers[layer]);
@@ -1877,8 +1858,7 @@ void App::SyncComparePanel()
         return;
     }
 
-    sb.SetCompareState(static_cast<int>(m_compareMode),
-                       m_compareBase.label.c_str(), m_compareBlend.label.c_str(),
+    sb.SetCompareState(static_cast<int>(m_compareMode), m_compareBase.label.c_str(), m_compareBlend.label.c_str(),
                        m_compareFocused);
 }
 
@@ -1985,8 +1965,8 @@ void App::LoadRecentFiles()
 
         // Strip trailing newline/carriage return and stray whitespace
         size_t len = wcslen(start);
-        while (len > 0 &&
-               (start[len - 1] == L'\n' || start[len - 1] == L'\r' || start[len - 1] == L' ' || start[len - 1] == L'\t'))
+        while (len > 0 && (start[len - 1] == L'\n' || start[len - 1] == L'\r' || start[len - 1] == L' ' ||
+                           start[len - 1] == L'\t'))
             start[--len] = L'\0';
         if (len > 0)
             m_recentFiles.push_back(start);
@@ -2120,8 +2100,7 @@ void App::AddToRecentFiles(std::wstring path)
     // sequence appears once, not once per opened frame). path is by value because
     // callers may pass m_recentFiles[i], which remove_if would otherwise invalidate.
     std::wstring key = SequenceKeyForPath(path);
-    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(),
-                                       [&key](const std::wstring& entry)
+    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(), [&key](const std::wstring& entry)
                                        { return _wcsicmp(SequenceKeyForPath(entry).c_str(), key.c_str()) == 0; }),
                         m_recentFiles.end());
 

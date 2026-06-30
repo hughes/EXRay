@@ -39,9 +39,9 @@ struct ViewportCB
     // Converts source primaries → Rec. 709
     float colorMatrix[12]; // rows: [m00 m01 m02 pad] [m10 m11 m12 pad] [m20 m21 m22 pad]
     // Compare mode (16-byte aligned row)
-    int compareMode;     // 0=Off, 1=Split, 2=Difference, 3=Add, 4=Over
-    float splitX;        // split line position in screen pixels
-    float compareGain;   // multiplier for difference mode
+    int compareMode;   // 0=Off, 1=Split, 2=Difference, 3=Add, 4=Over
+    float splitX;      // split line position in screen pixels
+    float compareGain; // multiplier for difference mode
     float _pad2;
     // Color matrix for compare source B (same layout as colorMatrix)
     float colorMatrixB[12];

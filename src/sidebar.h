@@ -114,10 +114,10 @@ class Sidebar
     // Compare panel
     static constexpr int kNumCompareModes = 5; // None, Split, Diff, Add, Over
     HWND m_compareModeBtns[kNumCompareModes] = {};
-    HWND m_compareFocusBtns[2] = {};  // [Focus Left/Base] [Focus Right/Blend]
-    HWND m_compareSwapBtn = nullptr;  // [Swap]
-    int m_compareMode = 0;            // 0=off, 1=split, 2=diff, 3=add, 4=over
-    int m_compareFocus = 0;           // 0=base/left, 1=blend/right
+    HWND m_compareFocusBtns[2] = {}; // [Focus Left/Base] [Focus Right/Blend]
+    HWND m_compareSwapBtn = nullptr; // [Swap]
+    int m_compareMode = 0;           // 0=off, 1=split, 2=diff, 3=add, 4=over
+    int m_compareFocus = 0;          // 0=base/left, 1=blend/right
     std::wstring m_compareLabelBase;
     std::wstring m_compareLabelBlend;
 
@@ -164,7 +164,7 @@ class Sidebar
     int m_seqCurrentIndex = 0;
     int m_seqTotalFrames = 0;
     bool m_seqActive = false;
-    int m_seqRepeatDelta = 0;      // +1 or -1 while holding nav button
+    int m_seqRepeatDelta = 0; // +1 or -1 while holding nav button
     static constexpr UINT_PTR kSeqRepeatTimerId = 100;
     static constexpr int kSeqRepeatInitialMs = 300;
     static constexpr int kSeqRepeatMs = 80;
@@ -194,10 +194,10 @@ class Sidebar
     bool m_playing = false;
     int m_fps = 24;
     int m_loopMode = kLoopLoop;
-    int m_playDir = 1;             // +1/-1 (ping-pong)
-    DWORD m_playStartMs = 0;       // timeGetTime() anchor for drift-compensated cadence
-    long m_playTickCount = 0;      // frames elapsed since the anchor
-    void ScheduleNextPlayTick();   // drift-compensated reschedule
+    int m_playDir = 1;           // +1/-1 (ping-pong)
+    DWORD m_playStartMs = 0;     // timeGetTime() anchor for drift-compensated cadence
+    long m_playTickCount = 0;    // frames elapsed since the anchor
+    void ScheduleNextPlayTick(); // drift-compensated reschedule
 
     // Timeline prefetch-residency shading
     static constexpr UINT_PTR kSeqCacheTimerId = 102;

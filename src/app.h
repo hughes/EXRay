@@ -103,16 +103,16 @@ class App
     {
         int tabIndex = -1;
         int layerIndex = 0;
-        ImageData image;       // snapshotted pixel data (copied at Set time)
-        std::wstring label;    // human-readable label, e.g. "Blobbies.exr (diffuse)"
+        ImageData image;    // snapshotted pixel data (copied at Set time)
+        std::wstring label; // human-readable label, e.g. "Blobbies.exr (diffuse)"
     };
 
     CompareMode m_compareMode = CompareMode::Off;
     CompareSource m_compareBase;
     CompareSource m_compareBlend;
-    int m_compareFocused = 0;    // 0=base/left, 1=blend/right
+    int m_compareFocused = 0;   // 0=base/left, 1=blend/right
     float m_splitX = 0.5f;      // normalized [0,1] split position
-    float m_compareGain = 1.0f;  // gain for difference mode
+    float m_compareGain = 1.0f; // gain for difference mode
 
     // Saved viewport state — restored when exiting compare
     float m_savedImageWidth = 0;
@@ -141,16 +141,13 @@ class App
         HistogramData histogram;
         ExrFileInfo layerInfo;
         int activeLayer = 0;
-        SequenceInfo sequence;          // empty if not a sequence
-        int playbackFps = 24;           // per-tab playback rate
-        int loopMode = 0;               // per-tab end behavior: 0=Loop,1=Once,2=Ping
+        SequenceInfo sequence;            // empty if not a sequence
+        int playbackFps = 24;             // per-tab playback rate
+        int loopMode = 0;                 // per-tab end behavior: 0=Loop,1=Once,2=Ping
         std::vector<float> layerExposure; // per-layer EV (NaN = not yet auto-computed)
     };
 
-    bool IsSequenceTab() const
-    {
-        return m_activeTab >= 0 && !m_openTabs[m_activeTab].sequence.frames.empty();
-    }
+    bool IsSequenceTab() const { return m_activeTab >= 0 && !m_openTabs[m_activeTab].sequence.frames.empty(); }
     void NavigateSequence(int delta); // +1 next, -1 prev
     void JumpToFrame(int frameNumber);
     void SyncSequencePanel();
@@ -159,8 +156,8 @@ class App
     // RAM (under a shared budget, LRU eviction) so navigation is a GPU upload and
     // switching tabs doesn't discard a warm sequence.
     SequenceCache m_seqCache;
-    std::wstring m_activeCacheId;        // id of the sequence the cache is prefetching
-    void EnsureSequenceCache();          // activate the cache for the active tab
+    std::wstring m_activeCacheId; // id of the sequence the cache is prefetching
+    void EnsureSequenceCache();   // activate the cache for the active tab
     static std::wstring SequenceCacheId(const SequenceInfo& seq);
     static size_t SequenceCacheBudget(); // shared memory budget for the cache, in bytes
 
@@ -192,9 +189,9 @@ class App
     std::wstring m_playBenchOut;
     int m_playBenchTarget = 0;
     int m_playBenchFps = 24;
-    std::vector<double> m_playBenchMs;  // per-advance click->present latency
-    std::vector<bool> m_playBenchHit;   // per-advance cache hit/miss
-    int64_t m_playBenchFirstTick = 0;   // wall-clock anchor for fps
+    std::vector<double> m_playBenchMs; // per-advance click->present latency
+    std::vector<bool> m_playBenchHit;  // per-advance cache hit/miss
+    int64_t m_playBenchFirstTick = 0;  // wall-clock anchor for fps
     int64_t m_playBenchLastTick = 0;
     void RecordPlayBenchSample(double ms, bool cacheHit, int64_t tEnd);
     void WritePlayBenchReport();

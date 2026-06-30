@@ -6,10 +6,7 @@
 
 SequenceCache::~SequenceCache() { StopWorker(); }
 
-size_t SequenceCache::FrameBytes(const ImageData& img)
-{
-    return img.pixels.size() * sizeof(half) + sizeof(ImageData);
-}
+size_t SequenceCache::FrameBytes(const ImageData& img) { return img.pixels.size() * sizeof(half) + sizeof(ImageData); }
 
 void SequenceCache::StartWorker()
 {

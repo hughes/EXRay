@@ -2,10 +2,9 @@
 
 #pragma once
 
-#include <half.h>
-
 #include <cstdint>
 #include <cstring>
+#include <half.h>
 #include <string>
 #include <vector>
 
