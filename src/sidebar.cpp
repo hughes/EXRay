@@ -503,29 +503,30 @@ void Sidebar::DrawTimelineCache(HDC hdc, const RECT& rc) const
     const COLORREF kPending = RGB(96, 74, 38);     // not loaded — muted amber
     const COLORREF kLoading = RGB(208, 150, 52);   // decoding now — bright amber
 
-    int total = static_cast<int>(m_cacheStates.size());
-    if (total <= 0)
+    const int width = rc.right - rc.left;
+    const int total = m_seqTotalFrames; // authoritative frame count (snapshot may be stale)
+
+    // Background — this also clears any previous playhead. Draw the residency
+    // bands only when the snapshot matches the current sequence; right after a
+    // tab switch it still holds the old sequence's states until the poll refreshes.
+    if (total > 0 && static_cast<int>(m_cacheStates.size()) == total)
+    {
+        HBRUSH brushes[3] = {CreateSolidBrush(kPending), CreateSolidBrush(kLoading), CreateSolidBrush(kResident)};
+        for (int i = 0; i < total; ++i)
+        {
+            RECT band = {rc.left + MulDiv(i, width, total), rc.top, rc.left + MulDiv(i + 1, width, total), rc.bottom};
+            uint8_t st = m_cacheStates[i];
+            FillRect(hdc, &band, brushes[st <= 2 ? st : 0]);
+        }
+        for (HBRUSH b : brushes)
+            DeleteObject(b);
+    }
+    else
     {
         HBRUSH b = CreateSolidBrush(kResident);
         FillRect(hdc, &rc, b);
         DeleteObject(b);
-        return;
     }
-
-    HBRUSH brushes[3] = {CreateSolidBrush(kPending), CreateSolidBrush(kLoading), CreateSolidBrush(kResident)};
-    int width = rc.right - rc.left;
-    for (int i = 0; i < total; ++i)
-    {
-        RECT band;
-        band.left = rc.left + MulDiv(i, width, total);
-        band.right = rc.left + MulDiv(i + 1, width, total);
-        band.top = rc.top;
-        band.bottom = rc.bottom;
-        uint8_t st = m_cacheStates[i];
-        FillRect(hdc, &band, brushes[st <= 2 ? st : 0]);
-    }
-    for (HBRUSH b : brushes)
-        DeleteObject(b);
 
     // Border
     HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
@@ -533,17 +534,26 @@ void Sidebar::DrawTimelineCache(HDC hdc, const RECT& rc) const
     HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
     Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
     SelectObject(hdc, oldBr);
-
-    // Playhead marker at the current frame.
-    int denom = (total > 1) ? (total - 1) : 1;
-    int px = rc.left + MulDiv(m_seqCurrentIndex, width - 1, denom);
-    HPEN headPen = CreatePen(PS_SOLID, MulDiv(2, GetDpiForWindow(m_hwnd), 96), Colors::TextBright);
-    SelectObject(hdc, headPen);
-    MoveToEx(hdc, px, rc.top, nullptr);
-    LineTo(hdc, px, rc.bottom);
     SelectObject(hdc, oldPen);
-    DeleteObject(headPen);
     DeleteObject(borderPen);
+
+    // Playhead — a thin filled rect bounded inside the border (a pen LineTo to
+    // rc.bottom would paint one pixel outside the fill area and leave a dot when
+    // the playhead moves).
+    if (total > 0)
+    {
+        int denom = (total > 1) ? (total - 1) : 1;
+        int px = rc.left + MulDiv(m_seqCurrentIndex, width - 1, denom);
+        int w = (std::max)(1, MulDiv(2, GetDpiForWindow(m_hwnd), 96));
+        RECT head = {px, rc.top + 1, px + w, rc.bottom - 1};
+        if (head.left < rc.left + 1)
+            head.left = rc.left + 1;
+        if (head.right > rc.right - 1)
+            head.right = rc.right - 1;
+        HBRUSH hb = CreateSolidBrush(Colors::TextBright);
+        FillRect(hdc, &head, hb);
+        DeleteObject(hb);
+    }
 }
 
 void Sidebar::ScrubTimelineToX(int x)
