@@ -200,6 +200,10 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             auto& seq = m_openTabs[m_activeTab].sequence;
             NavigateSequence(seq.FrameCount() - 1 - seq.currentIndex);
         }
+        else if (vk == VK_SPACE && IsSequenceTab())
+        {
+            m_window.GetSidebar().TogglePlayback();
+        }
         else if (vk == 'G')
         {
             m_showGrid = !m_showGrid;
@@ -295,6 +299,13 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
     };
     sidebar.onSequenceJump = [this](int frameNumber) { JumpToFrame(frameNumber); };
+    sidebar.onQueryCacheStates = [this](std::vector<uint8_t>& out) { m_seqCache.SnapshotStates(out); };
+    sidebar.onLoopModeChanged = [this](int mode)
+    {
+        // Ping-pong (mode 2) plays backward too, so keep a reverse buffer;
+        // Loop/Once only go forward, so prefetch pure forward-wrap.
+        m_seqCache.SetReverseLookback(mode == 2 ? 8 : 0);
+    };
     sidebar.onCompareMode = [this](int mode)
     {
         SetCompareMode(static_cast<CompareMode>(mode));
@@ -487,6 +498,79 @@ void App::StartUpdateCheck()
         });
 }
 
+void App::SetPlayBenchmark(const std::wstring& outPath, int frames, int fps)
+{
+    m_playBench = true;
+    m_playBenchOut = outPath;
+    m_playBenchTarget = frames;
+    m_playBenchFps = fps;
+}
+
+void App::RecordPlayBenchSample(double ms, bool cacheHit, int64_t tEnd)
+{
+    if (m_playBenchMs.empty())
+        m_playBenchFirstTick = tEnd;
+    m_playBenchLastTick = tEnd;
+    m_playBenchMs.push_back(ms);
+    m_playBenchHit.push_back(cacheHit);
+
+    if (static_cast<int>(m_playBenchMs.size()) >= m_playBenchTarget)
+    {
+        WritePlayBenchReport();
+        PostQuitMessage(0);
+    }
+}
+
+void App::WritePlayBenchReport()
+{
+    int seqLen = IsSequenceTab() ? m_openTabs[m_activeTab].sequence.FrameCount() : 0;
+    int n = static_cast<int>(m_playBenchMs.size());
+
+    auto stats = [&](int lo, int hi, double& median, double& maxv, int& misses)
+    {
+        std::vector<double> v;
+        misses = 0;
+        for (int i = lo; i < hi && i < n; ++i)
+        {
+            v.push_back(m_playBenchMs[i]);
+            if (!m_playBenchHit[i])
+                misses++;
+        }
+        if (v.empty())
+        {
+            median = maxv = 0;
+            return;
+        }
+        std::sort(v.begin(), v.end());
+        median = v[v.size() / 2];
+        maxv = v.back();
+    };
+
+    double m1 = 0, x1 = 0, mr = 0, xr = 0;
+    int miss1 = 0, missR = 0;
+    int loop1End = (seqLen > 0 && seqLen < n) ? seqLen : n;
+    stats(0, loop1End, m1, x1, miss1);
+    stats(loop1End, n, mr, xr, missR);
+
+    double wallMs = m_timing->MsBetween(m_playBenchFirstTick, m_playBenchLastTick);
+    double fps = (wallMs > 0 && n > 1) ? (n - 1) * 1000.0 / wallMs : 0.0;
+
+    FILE* f = _wfopen(m_playBenchOut.c_str(), L"w");
+    if (!f)
+        return;
+    fprintf(f, "{\n");
+    fprintf(f, "  \"frames_played\": %d,\n", n);
+    fprintf(f, "  \"sequence_length\": %d,\n", seqLen);
+    fprintf(f, "  \"target_fps\": %d,\n", m_playBenchFps);
+    fprintf(f, "  \"effective_fps\": %.2f,\n", fps);
+    fprintf(f, "  \"first_loop\":  { \"frames\": %d, \"median_ms\": %.1f, \"max_ms\": %.1f, \"cache_misses\": %d },\n",
+            loop1End, m1, x1, miss1);
+    fprintf(f, "  \"later_loops\": { \"frames\": %d, \"median_ms\": %.1f, \"max_ms\": %.1f, \"cache_misses\": %d }\n",
+            n - loop1End, mr, xr, missR);
+    fprintf(f, "}\n");
+    fclose(f);
+}
+
 int App::Run()
 {
     Render();
@@ -500,6 +584,13 @@ int App::Run()
     // Smoke test: one frame rendered successfully — exit immediately.
     if (m_smokeTest)
         return 0;
+
+    // Headless playback benchmark: kick off playback from frame 1 at the target fps.
+    if (m_playBench && IsSequenceTab())
+    {
+        m_window.GetSidebar().SetFps(m_playBenchFps);
+        m_window.GetSidebar().TogglePlayback();
+    }
 
     MSG msg = {};
     while (true)
@@ -545,10 +636,21 @@ int App::Run()
         }
         else if (m_histogramDirty)
         {
-            // Sequence stepping deferred the histogram to keep frame changes
-            // snappy. The message queue is now drained (navigation settled), so
-            // recompute and refresh the sidebar.
-            RecomputeHistogramIfDirty();
+            // Sequence stepping/playback deferred the histogram (a ~150ms recompute
+            // that would otherwise stutter navigation). Only recompute once
+            // navigation has been quiet for a moment; otherwise sleep until then
+            // (or until input arrives) so playback ticks aren't blocked.
+            constexpr double kQuietMs = 250.0;
+            double sinceNav = m_timing->MsSince(m_lastNavTick);
+            if (sinceNav < 0.0 || sinceNav >= kQuietMs)
+            {
+                RecomputeHistogramIfDirty();
+            }
+            else
+            {
+                DWORD waitMs = static_cast<DWORD>(kQuietMs - sinceNav) + 5;
+                MsgWaitForMultipleObjectsEx(0, nullptr, waitMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            }
         }
         else
         {
@@ -897,6 +999,8 @@ void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSeq
     if (isSequenceStep)
     {
         m_histogramDirty = true;
+        // Keep the selected layer across frames (NavigateSequence loaded the right
+        // layer); the layer structure is identical from frame to frame.
     }
     else
     {
@@ -905,8 +1009,8 @@ void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSeq
         // Scan layers (metadata only)
         std::string layerError;
         ImageLoader::ScanLayers(path, m_layerInfo, layerError);
+        m_activeLayer = 0;
     }
-    m_activeLayer = 0;
 
     // Auto-select "RGB (ignore alpha)" when alpha is all zeros
     m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
@@ -1028,8 +1132,26 @@ static std::wstring FormatSequenceTabTitle(const std::wstring& path, const Seque
     return buf;
 }
 
-void App::OpenFile(const std::wstring& path)
+void App::OpenFile(const std::wstring& rawPath)
 {
+    // Trim stray surrounding whitespace/quotes. recent.txt entries and
+    // second-instance forwarding can carry a trailing space, which would corrupt
+    // the sequence suffix in DetectSequence (".exr " ≠ ".exr") and silently open
+    // the file as a single frame.
+    std::wstring path = rawPath;
+    auto trim = [](std::wstring& s)
+    {
+        size_t a = s.find_first_not_of(L" \t");
+        size_t b = s.find_last_not_of(L" \t");
+        s = (a == std::wstring::npos) ? L"" : s.substr(a, b - a + 1);
+    };
+    trim(path);
+    if (path.size() >= 2 && path.front() == L'"' && path.back() == L'"')
+    {
+        path = path.substr(1, path.size() - 2);
+        trim(path);
+    }
+
     // Detect if this file belongs to a sequence
     SequenceInfo seq = DetectSequence(path);
 
@@ -1078,6 +1200,8 @@ void App::OpenFile(const std::wstring& path)
     m_window.AddTab(newIndex, tabTitle.c_str());
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
+    // New tab starts with default playback settings (and stops any prior playback).
+    m_window.GetSidebar().ResetPlaybackForTab(m_openTabs[newIndex].playbackFps, m_openTabs[newIndex].loopMode);
     AddToRecentFiles(path);
 
     // If compare mode is active, snapshot the new file as the focused source
@@ -1108,6 +1232,9 @@ void App::SwitchToTab(int index)
     m_layerInfo = m_openTabs[index].layerInfo;
     m_activeLayer = m_openTabs[index].activeLayer;
     m_renderer.UploadImage(m_image);
+
+    // Restore this tab's playback settings (stops any playback from the old tab).
+    m_window.GetSidebar().ResetPlaybackForTab(m_openTabs[index].playbackFps, m_openTabs[index].loopMode);
 
     // In compare mode, keep viewport locked to the entry dimensions
     if (m_compareMode == CompareMode::Off)
@@ -1229,6 +1356,10 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].gamma = m_viewport.gamma;
         m_openTabs[m_activeTab].layerInfo = m_layerInfo;
         m_openTabs[m_activeTab].activeLayer = m_activeLayer;
+        // Per-tab playback settings
+        Sidebar& sb = m_window.GetSidebar();
+        m_openTabs[m_activeTab].playbackFps = sb.GetFps();
+        m_openTabs[m_activeTab].loopMode = sb.GetLoopMode();
         if (m_image.IsLoaded())
         {
             // Flush any histogram deferred by sequence stepping before stowing the tab.
@@ -1496,27 +1627,52 @@ void App::NavigateSequence(int delta)
     m_openTabs[m_activeTab].path = framePath;
 
     const int64_t tStart = StartupTiming::Now();
+    m_lastNavTick = tStart; // defer the expensive histogram until navigation settles
 
     // Drive the prefetch worker toward the new position and try the cache first.
     EnsureSequenceCache();
     m_seqCache.SetFocus(newIndex);
 
     // Load the new frame (sequence step: locked viewport, deferred histogram, no layer rescan).
-    // Cache hit → just a GPU upload; miss → synchronous decode, then seed the cache.
     bool loaded;
     bool cacheHit = false;
-    ImageData cached;
-    if (m_seqCache.TryGet(newIndex, cached))
+    const bool useLayer = (m_activeLayer > 0 && m_activeLayer < static_cast<int>(m_layerInfo.layers.size()));
+
+    if (useLayer)
     {
-        ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
-        loaded = true;
-        cacheHit = true;
+        // A non-default layer (e.g. Z depth) is selected — load it for the new
+        // frame so the selection persists. The prefetch cache holds default RGBA
+        // only, so it's bypassed here (layer playback isn't cache-accelerated).
+        std::string err;
+        ImageData img;
+        if (ImageLoader::LoadEXRLayer(framePath, m_layerInfo.layers[m_activeLayer], img, err))
+        {
+            ApplyLoadedImage(std::move(img), framePath, /*isSequenceStep=*/true);
+            loaded = true;
+        }
+        else
+        {
+            // Layer missing in this frame → fall back to default RGBA.
+            m_activeLayer = 0;
+            loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+        }
     }
     else
     {
-        loaded = LoadFile(framePath, /*isSequenceStep=*/true);
-        if (loaded)
-            m_seqCache.Put(newIndex, m_image);
+        // Default layer: cache hit → GPU upload only; miss → decode, then seed cache.
+        ImageData cached;
+        if (m_seqCache.TryGet(newIndex, cached))
+        {
+            ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
+            loaded = true;
+            cacheHit = true;
+        }
+        else
+        {
+            loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+            if (loaded)
+                m_seqCache.Put(newIndex, m_image);
+        }
     }
     const int64_t tApplied = StartupTiming::Now();
 
@@ -1555,6 +1711,9 @@ void App::NavigateSequence(int delta)
         OutputDebugStringW(dbg);
 
         UpdateImageStatusText(); // refresh status bar to show the new latency
+
+        if (m_playBench)
+            RecordPlayBenchSample(m_lastAdvanceMs, cacheHit, tEnd);
     }
 
     SyncSequencePanel();
@@ -1594,7 +1753,7 @@ void App::SyncSequencePanel()
     if (IsSequenceTab())
     {
         auto& seq = m_openTabs[m_activeTab].sequence;
-        sb.SetSequenceState(seq.CurrentFrameNumber(), seq.FrameCount());
+        sb.SetSequenceState(seq.currentIndex, seq.CurrentFrameNumber(), seq.FrameCount());
     }
     else
     {
@@ -1744,9 +1903,10 @@ void App::LoadRecentFiles()
             start++;
         firstLine = false;
 
-        // Strip trailing newline/carriage return
+        // Strip trailing newline/carriage return and stray whitespace
         size_t len = wcslen(start);
-        while (len > 0 && (start[len - 1] == L'\n' || start[len - 1] == L'\r'))
+        while (len > 0 &&
+               (start[len - 1] == L'\n' || start[len - 1] == L'\r' || start[len - 1] == L' ' || start[len - 1] == L'\t'))
             start[--len] = L'\0';
         if (len > 0)
             m_recentFiles.push_back(start);

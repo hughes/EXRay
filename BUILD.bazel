@@ -86,6 +86,7 @@ cc_binary(
         "-DEFAULTLIB:advapi32.lib",
         "-DEFAULTLIB:uxtheme.lib",
         "-DEFAULTLIB:dwmapi.lib",
+        "-DEFAULTLIB:winmm.lib",
         "$(location :app_resources)",
     ],
 )

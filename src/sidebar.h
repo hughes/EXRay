@@ -49,8 +49,16 @@ class Sidebar
     void ClearCompareState();
 
     // Sequence panel
-    void SetSequenceState(int currentFrame, int totalFrames);
+    void SetSequenceState(int currentIndex, int currentFrame, int totalFrames);
     void ClearSequenceState();
+    void TogglePlayback(); // play/pause (e.g. spacebar)
+    void SetFps(int fps);  // set playback rate (used by the benchmark harness)
+    bool IsPlaying() const { return m_playing; }
+
+    // Per-tab playback state (fps + loop mode are remembered per sequence tab).
+    int GetFps() const { return m_fps; }
+    int GetLoopMode() const { return m_loopMode; }
+    void ResetPlaybackForTab(int fps, int loopMode); // stop playback, apply this tab's settings
 
     // Callbacks
     ExposureChangeHandler onExposureChange;
@@ -70,6 +78,13 @@ class Sidebar
     CompareActionHandler onSequenceFirst;
     CompareActionHandler onSequenceLast;
     SequenceJumpHandler onSequenceJump;
+    // Fills a per-frame prefetch-residency snapshot (0=not loaded,1=loading,2=resident)
+    // used to shade the timeline. Empty if no cache is active.
+    using CacheStateHandler = std::function<void(std::vector<uint8_t>&)>;
+    CacheStateHandler onQueryCacheStates;
+    // Fired when the loop mode changes or a sequence becomes active (0=Loop,1=Once,2=Ping).
+    using LoopModeHandler = std::function<void(int mode)>;
+    LoopModeHandler onLoopModeChanged;
 
   private:
     static LRESULT CALLBACK WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -146,10 +161,53 @@ class Sidebar
     HWND m_seqLastBtn = nullptr;
     HWND m_seqFrameEdit = nullptr;
     int m_seqCurrentFrame = 0;
+    int m_seqCurrentIndex = 0;
     int m_seqTotalFrames = 0;
     bool m_seqActive = false;
     int m_seqRepeatDelta = 0;      // +1 or -1 while holding nav button
     static constexpr UINT_PTR kSeqRepeatTimerId = 100;
     static constexpr int kSeqRepeatInitialMs = 300;
     static constexpr int kSeqRepeatMs = 80;
+
+    // Playback controls (second/third sequence rows)
+    static constexpr int kSeqPlayBtnId = 2045;
+    static constexpr int kSeqFpsEditId = 2046;
+    static constexpr int kSeqLoopBtnId = 2047;
+    static constexpr UINT_PTR kSeqPlayTimerId = 101;
+
+    HWND m_seqPlayBtn = nullptr;
+    HWND m_seqFpsEdit = nullptr;
+    HWND m_seqLoopBtn = nullptr;
+    // Timeline is custom-drawn in OnPaint (so prefetch shading works regardless of
+    // control theming) and scrubbed via mouse in WndProc.
+    RECT m_timelineRect = {};
+    bool m_scrubbing = false;
+    void ScrubTimelineToX(int x);
+
+    enum LoopMode
+    {
+        kLoopLoop = 0, // wrap to start
+        kLoopOnce = 1, // stop at end
+        kLoopPing = 2, // bounce between ends
+    };
+    bool m_playing = false;
+    int m_fps = 24;
+    int m_loopMode = kLoopLoop;
+    int m_playDir = 1;             // +1/-1 (ping-pong)
+    DWORD m_playStartMs = 0;       // timeGetTime() anchor for drift-compensated cadence
+    long m_playTickCount = 0;      // frames elapsed since the anchor
+    void ScheduleNextPlayTick();   // drift-compensated reschedule
+
+    // Timeline prefetch-residency shading
+    static constexpr UINT_PTR kSeqCacheTimerId = 102;
+    std::vector<uint8_t> m_cacheStates; // mirror of the cache residency snapshot
+    void PollCacheStates();             // query + repaint the timeline if changed
+    void DrawTimelineCache(HDC hdc, const RECT& rc) const;
+
+    void StartPlayback();
+    void StopPlayback();
+    void PlayTick();
+    void UpdatePlayButtonLabel();
+    void UpdateLoopButtonLabel();
+    void CommitFpsFromEdit();
 };

@@ -76,6 +76,19 @@ void SequenceCache::SetFocus(int index)
     m_cv.notify_all();
 }
 
+void SequenceCache::SetReverseLookback(int frames)
+{
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        if (frames < 0)
+            frames = 0;
+        if (frames == m_reverseLookback)
+            return;
+        m_reverseLookback = frames;
+    }
+    m_cv.notify_all();
+}
+
 bool SequenceCache::TryGet(int index, ImageData& out)
 {
     std::lock_guard<std::mutex> lk(m_mutex);
@@ -120,6 +133,22 @@ int SequenceCache::ReadyCount() const
     return n;
 }
 
+void SequenceCache::SnapshotStates(std::vector<uint8_t>& out) const
+{
+    std::lock_guard<std::mutex> lk(m_mutex);
+    out.resize(m_slots.size());
+    for (size_t i = 0; i < m_slots.size(); ++i)
+    {
+        const Slot& s = m_slots[i];
+        if (s.state == SlotState::Ready && s.image.IsLoaded())
+            out[i] = 2;
+        else if (s.state == SlotState::Loading)
+            out[i] = 1;
+        else
+            out[i] = 0;
+    }
+}
+
 // Pick the Empty slot nearest the focus that is worth decoding. "Worth it" means
 // either we are under budget, or the candidate is closer to the focus than the
 // farthest resident frame (so loading it would evict something we want less).
@@ -129,21 +158,18 @@ int SequenceCache::PickNextLocked() const
     if (n == 0)
         return -1;
 
-    // Nearest Empty slot to focus (search outward).
+    // Highest-priority (lowest value) Empty slot.
     int candidate = -1;
-    for (int d = 0; d < n; ++d)
+    long candPri = 0;
+    for (int i = 0; i < n; ++i)
     {
-        int lo = m_focus - d;
-        int hi = m_focus + d;
-        if (lo >= 0 && m_slots[lo].state == SlotState::Empty)
+        if (m_slots[i].state != SlotState::Empty)
+            continue;
+        long p = FramePriorityLocked(i);
+        if (candidate < 0 || p < candPri)
         {
-            candidate = lo;
-            break;
-        }
-        if (hi != lo && hi < n && m_slots[hi].state == SlotState::Empty)
-        {
-            candidate = hi;
-            break;
+            candPri = p;
+            candidate = i;
         }
     }
     if (candidate < 0)
@@ -152,25 +178,29 @@ int SequenceCache::PickNextLocked() const
     if (m_bytes < m_budget)
         return candidate; // room to spare
 
-    // At/over budget: only load the candidate if it is closer than the farthest
-    // resident frame (otherwise it would just evict itself).
-    int farthest = -1, farDist = -1;
+    // At/over budget: only load the candidate if it outranks the worst (lowest
+    // priority) resident frame — otherwise it would just evict itself.
+    long worstPri = -1;
     for (int i = 0; i < n; ++i)
     {
         if (m_slots[i].state == SlotState::Ready)
-        {
-            int dist = std::abs(i - m_focus);
-            if (dist > farDist)
-            {
-                farDist = dist;
-                farthest = i;
-            }
-        }
+            worstPri = (std::max)(worstPri, FramePriorityLocked(i));
     }
-    (void)farthest;
-    if (std::abs(candidate - m_focus) < farDist)
+    if (candPri < worstPri)
         return candidate;
     return -1;
+}
+
+long SequenceCache::FramePriorityLocked(int i) const
+{
+    const int n = static_cast<int>(m_slots.size());
+    if (n == 0 || i == m_focus)
+        return 0;
+    int fwd = (i - m_focus + n) % n;  // steps forward (play direction), wrapping
+    int back = (m_focus - i + n) % n; // steps backward
+    if (m_reverseLookback > 0 && back <= m_reverseLookback)
+        return back; // small reverse buffer for back-scrubbing (ping-pong)
+    return static_cast<long>(m_reverseLookback) + fwd;
 }
 
 void SequenceCache::EvictLocked(int keepIndex)
@@ -178,18 +208,19 @@ void SequenceCache::EvictLocked(int keepIndex)
     const int n = static_cast<int>(m_slots.size());
     while (m_bytes > m_budget)
     {
-        // Drop the resident frame farthest from focus (never the just-loaded one).
-        int victim = -1, victimDist = -1;
+        // Drop the lowest-priority resident frame (never the just-loaded one).
+        int victim = -1;
+        long victimPri = -1;
         for (int i = 0; i < n; ++i)
         {
             if (i == keepIndex)
                 continue;
             if (m_slots[i].state == SlotState::Ready && m_slots[i].image.IsLoaded())
             {
-                int dist = std::abs(i - m_focus);
-                if (dist > victimDist)
+                long p = FramePriorityLocked(i);
+                if (p > victimPri)
                 {
-                    victimDist = dist;
+                    victimPri = p;
                     victim = i;
                 }
             }

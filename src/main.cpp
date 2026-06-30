@@ -157,6 +157,55 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
         }
     }
 
+    // --play-benchmark <out> <frames> <fps> <file>: auto-play a sequence headlessly,
+    // log per-frame timing to <out>, then exit. Lets playback be measured without
+    // needing to give the window keyboard focus.
+    bool playBench = false;
+    std::wstring playBenchOut;
+    int playBenchFrames = 0, playBenchFps = 24;
+    {
+        std::wstring cmdLine = lpCmdLine ? lpCmdLine : L"";
+        const std::wstring flag = L"--play-benchmark";
+        auto pos = cmdLine.find(flag);
+        if (pos != std::wstring::npos)
+        {
+            std::wstring rest = cmdLine.substr(pos + flag.size());
+            auto nextTok = [&](size_t& i) -> std::wstring
+            {
+                while (i < rest.size() && (rest[i] == L' ' || rest[i] == L'\t'))
+                    i++;
+                size_t s = i;
+                while (i < rest.size() && rest[i] != L' ' && rest[i] != L'\t')
+                    i++;
+                return rest.substr(s, i - s);
+            };
+            size_t i = 0;
+            std::wstring out = nextTok(i);
+            std::wstring frames = nextTok(i);
+            std::wstring fps = nextTok(i);
+            while (i < rest.size() && (rest[i] == L' ' || rest[i] == L'\t'))
+                i++;
+            std::wstring file = rest.substr(i);
+            auto strip = [](std::wstring& s)
+            {
+                if (s.size() >= 2 && s.front() == L'"' && s.back() == L'"')
+                    s = s.substr(1, s.size() - 2);
+            };
+            strip(out);
+            strip(file);
+            playBench = true;
+            playBenchOut = out;
+            playBenchFrames = _wtoi(frames.c_str());
+            playBenchFps = _wtoi(fps.c_str());
+            if (playBenchFrames <= 0)
+                playBenchFrames = 240;
+            if (playBenchFps <= 0)
+                playBenchFps = 24;
+            static std::wstring s_file = file; // persist for lpCmdLine
+            lpCmdLine = const_cast<LPWSTR>(s_file.c_str());
+        }
+    }
+
     // --smoke-test <file>: GUI smoke test mode.
     // Forces WARP, suppresses dialogs, exits after rendering one frame.
     // Exit code: 0 = success, 1 = failure.
@@ -181,7 +230,7 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
     // Single-instance check: if another instance is running, forward the file path to it.
     // Skip in smoke-test mode — CI may run multiple instances concurrently.
     HANDLE hMutex = nullptr;
-    if (!smokeTest)
+    if (!smokeTest && !playBench)
         hMutex = CreateMutexW(nullptr, FALSE, kAppMutexName);
     if (hMutex && GetLastError() == ERROR_ALREADY_EXISTS)
     {
@@ -227,6 +276,9 @@ int WINAPI wWinMain(HINSTANCE hInstance, HINSTANCE, LPWSTR lpCmdLine, int nCmdSh
             CloseHandle(hMutex);
         return 1;
     }
+
+    if (playBench)
+        app.SetPlayBenchmark(playBenchOut, playBenchFrames, playBenchFps);
 
     int result = app.Run();
 

@@ -29,6 +29,10 @@ class App
     bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest = false);
     int Run();
 
+    // Headless playback benchmark: auto-play the opened sequence at `fps`, log
+    // per-frame timing to `outPath`, then exit after `frames` advances.
+    void SetPlayBenchmark(const std::wstring& outPath, int frames, int fps);
+
   private:
     void OnCommand(int commandId);
     void OnResize(int width, int height);
@@ -69,6 +73,7 @@ class App
     // Histogram state (data for sidebar display)
     HistogramData m_histogram;
     bool m_histogramDirty = false; // recompute deferred to idle (sequence stepping)
+    int64_t m_lastNavTick = 0;     // timestamp of last sequence navigation (defers histogram during playback)
     int m_histogramChannel = 4;    // 0=Lum, 1=R, 2=G, 3=B, 4=All
 
     // Layer info for current file
@@ -135,6 +140,8 @@ class App
         ExrFileInfo layerInfo;
         int activeLayer = 0;
         SequenceInfo sequence; // empty if not a sequence
+        int playbackFps = 24;  // per-tab playback rate
+        int loopMode = 0;      // per-tab end behavior: 0=Loop,1=Once,2=Ping
     };
 
     bool IsSequenceTab() const
@@ -174,4 +181,16 @@ class App
 
     // Smoke test mode — force WARP, suppress dialogs, exit after first frame
     bool m_smokeTest = false;
+
+    // Headless playback benchmark state
+    bool m_playBench = false;
+    std::wstring m_playBenchOut;
+    int m_playBenchTarget = 0;
+    int m_playBenchFps = 24;
+    std::vector<double> m_playBenchMs;  // per-advance click->present latency
+    std::vector<bool> m_playBenchHit;   // per-advance cache hit/miss
+    int64_t m_playBenchFirstTick = 0;   // wall-clock anchor for fps
+    int64_t m_playBenchLastTick = 0;
+    void RecordPlayBenchSample(double ms, bool cacheHit, int64_t tEnd);
+    void WritePlayBenchReport();
 };

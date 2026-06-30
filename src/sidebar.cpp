@@ -12,6 +12,8 @@
 #include <cmath>
 #include <commctrl.h>
 #include <cstdio>
+#include <timeapi.h>  // timeBeginPeriod — accurate playback timer cadence
+#include <windowsx.h> // GET_X_LPARAM
 
 static const wchar_t* const kSidebarClassName = L"EXRay_Sidebar";
 
@@ -26,6 +28,31 @@ static constexpr int kGammaTrackMin = 5;
 static constexpr int kGammaTrackMax = 20;
 static float GammaFromTrackPos(int pos) { return static_cast<float>(pos) * 0.05f; }
 static int TrackPosFromGamma(float g) { return static_cast<int>(g * 20.0f); }
+
+// Subclass for single-line numeric edits (frame number, fps): digits only,
+// Enter commits by moving focus to the parent (triggering EN_KILLFOCUS),
+// Ctrl+Backspace deletes back to the start, and the Enter beep is suppressed.
+static LRESULT CALLBACK NumericEditProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR)
+{
+    if (msg == WM_KEYDOWN && wParam == VK_RETURN)
+    {
+        SetFocus(GetParent(hwnd));
+        return 0;
+    }
+    if (msg == WM_CHAR && wParam == L'\r')
+        return 0; // suppress beep
+    if (msg == WM_CHAR && wParam == 0x7F) // Ctrl+Backspace: delete from caret back to start
+    {
+        DWORD start = 0, end = 0;
+        SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
+        SendMessageW(hwnd, EM_SETSEL, 0, start);
+        SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
+        return 0;
+    }
+    if (msg == WM_CHAR && wParam >= L' ' && (wParam < L'0' || wParam > L'9'))
+        return 0; // ignore non-digits (allow control chars like backspace)
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
 
 static COLORREF ChannelColor(int ch)
 {
@@ -162,34 +189,19 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
     SetWindowSubclass(m_seqPrevBtn, navBtnSubclass, 0, reinterpret_cast<DWORD_PTR>(this));
     SetWindowSubclass(m_seqNextBtn, navBtnSubclass, 0, reinterpret_cast<DWORD_PTR>(this));
 
-    // Subclass the edit to handle Enter key (must eat both WM_KEYDOWN and WM_CHAR
-    // to prevent the system beep that single-line edits produce on Enter)
-    SetWindowSubclass(
-        m_seqFrameEdit,
-        [](HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam, UINT_PTR, DWORD_PTR refData) -> LRESULT
-        {
-            if (msg == WM_KEYDOWN && wParam == VK_RETURN)
-            {
-                SetFocus(GetParent(hwnd));
-                return 0;
-            }
-            if (msg == WM_CHAR && wParam == L'\r')
-                return 0; // suppress beep
-            // Ctrl+Backspace: delete from caret back to start
-            if (msg == WM_CHAR && wParam == 0x7F)
-            {
-                DWORD start = 0, end = 0;
-                SendMessageW(hwnd, EM_GETSEL, reinterpret_cast<WPARAM>(&start), reinterpret_cast<LPARAM>(&end));
-                SendMessageW(hwnd, EM_SETSEL, 0, start);
-                SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(L""));
-                return 0;
-            }
-            // Silently ignore non-digit characters (allow control chars like backspace)
-            if (msg == WM_CHAR && wParam >= L' ' && (wParam < L'0' || wParam > L'9'))
-                return 0;
-            return DefSubclassProc(hwnd, msg, wParam, lParam);
-        },
-        0, 0);
+    // Digits-only + Enter-commits behavior for the frame-number edit.
+    SetWindowSubclass(m_seqFrameEdit, NumericEditProc, 0, 0);
+
+    // --- Playback controls (rows below the advance buttons; hidden until active) ---
+    m_seqPlayBtn = CreateWindowExW(0, WC_BUTTONW, L"Play", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqPlayBtnId)), hInstance, nullptr);
+    m_seqFpsEdit = CreateWindowExW(0, WC_EDITW, L"24", WS_CHILD | WS_BORDER | ES_CENTER, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqFpsEditId)), hInstance, nullptr);
+    Theme::ApplyToControl(m_seqFpsEdit);
+    SetWindowSubclass(m_seqFpsEdit, NumericEditProc, 0, 0);
+    m_seqLoopBtn = CreateWindowExW(0, WC_BUTTONW, L"Loop", WS_CHILD | BS_OWNERDRAW, 0, 0, 0, 0, m_hwnd,
+                                   reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqLoopBtnId)), hInstance, nullptr);
+    // (Timeline is custom-drawn in OnPaint — no child control.)
 
     // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
     m_layerList = CreateWindowExW(
@@ -214,6 +226,8 @@ void Sidebar::SetFont(HFONT font)
         SendMessageW(m_layerList, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     if (m_seqFrameEdit)
         SendMessageW(m_seqFrameEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
+    if (m_seqFpsEdit)
+        SendMessageW(m_seqFpsEdit, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -259,6 +273,11 @@ void Sidebar::SetEnabled(bool enabled)
     EnableWindow(m_seqNextBtn, enabled);
     EnableWindow(m_seqLastBtn, enabled);
     EnableWindow(m_seqFrameEdit, enabled);
+    EnableWindow(m_seqPlayBtn, enabled);
+    EnableWindow(m_seqFpsEdit, enabled);
+    EnableWindow(m_seqLoopBtn, enabled);
+    if (!enabled)
+        StopPlayback();
     InvalidateRect(m_hwnd, nullptr, FALSE);
 }
 
@@ -325,38 +344,309 @@ void Sidebar::ClearCompareState()
     SetCompareState(0, nullptr, nullptr, 0);
 }
 
-void Sidebar::SetSequenceState(int currentFrame, int totalFrames)
+void Sidebar::SetSequenceState(int currentIndex, int currentFrame, int totalFrames)
 {
+    bool wasActive = m_seqActive;
+    bool totalsChanged = (totalFrames != m_seqTotalFrames);
     m_seqActive = true;
+    m_seqCurrentIndex = currentIndex;
     m_seqCurrentFrame = currentFrame;
     m_seqTotalFrames = totalFrames;
 
-    ShowWindow(m_seqFirstBtn, SW_SHOW);
-    ShowWindow(m_seqPrevBtn, SW_SHOW);
-    ShowWindow(m_seqNextBtn, SW_SHOW);
-    ShowWindow(m_seqLastBtn, SW_SHOW);
-    ShowWindow(m_seqFrameEdit, SW_SHOW);
+    if (!wasActive)
+    {
+        ShowWindow(m_seqFirstBtn, SW_SHOW);
+        ShowWindow(m_seqPrevBtn, SW_SHOW);
+        ShowWindow(m_seqNextBtn, SW_SHOW);
+        ShowWindow(m_seqLastBtn, SW_SHOW);
+        ShowWindow(m_seqFrameEdit, SW_SHOW);
+        ShowWindow(m_seqPlayBtn, SW_SHOW);
+        ShowWindow(m_seqFpsEdit, SW_SHOW);
+        ShowWindow(m_seqLoopBtn, SW_SHOW);
+        UpdatePlayButtonLabel();
+        UpdateLoopButtonLabel();
+        if (onLoopModeChanged)
+            onLoopModeChanged(m_loopMode); // set the cache's prefetch policy
+        m_cacheStates.clear();
+        SetTimer(m_hwnd, kSeqCacheTimerId, 150, nullptr); // poll prefetch residency
+        PollCacheStates();
+    }
 
-    wchar_t buf[16];
-    swprintf_s(buf, L"%d", currentFrame);
-    SetWindowTextW(m_seqFrameEdit, buf);
+    // Update the frame readout without clobbering an in-progress edit.
+    if (GetFocus() != m_seqFrameEdit)
+    {
+        wchar_t buf[16];
+        swprintf_s(buf, L"%d", currentFrame);
+        SetWindowTextW(m_seqFrameEdit, buf);
+    }
 
-    LayoutControls();
-    InvalidateRect(m_hwnd, nullptr, FALSE);
+    if (!wasActive || totalsChanged)
+    {
+        // Panel first appeared or frame count changed → full re-layout/repaint.
+        LayoutControls();
+        InvalidateRect(m_hwnd, nullptr, FALSE);
+    }
+    else
+    {
+        // Per-frame update (playback/step): just repaint the timeline so the
+        // playhead moves, without a full layout (avoids flicker).
+        InvalidateRect(m_hwnd, &m_timelineRect, FALSE);
+    }
 }
 
 void Sidebar::ClearSequenceState()
 {
     if (!m_seqActive)
         return;
+    StopPlayback();
+    KillTimer(m_hwnd, kSeqCacheTimerId);
+    m_cacheStates.clear();
     m_seqActive = false;
     ShowWindow(m_seqFirstBtn, SW_HIDE);
     ShowWindow(m_seqPrevBtn, SW_HIDE);
     ShowWindow(m_seqNextBtn, SW_HIDE);
     ShowWindow(m_seqLastBtn, SW_HIDE);
     ShowWindow(m_seqFrameEdit, SW_HIDE);
+    ShowWindow(m_seqPlayBtn, SW_HIDE);
+    ShowWindow(m_seqFpsEdit, SW_HIDE);
+    ShowWindow(m_seqLoopBtn, SW_HIDE);
     LayoutControls();
     InvalidateRect(m_hwnd, nullptr, FALSE);
+}
+
+// --- Playback ---------------------------------------------------------------
+
+void Sidebar::UpdatePlayButtonLabel()
+{
+    SetWindowTextW(m_seqPlayBtn, m_playing ? L"Pause" : L"Play");
+    InvalidateRect(m_seqPlayBtn, nullptr, FALSE);
+}
+
+void Sidebar::UpdateLoopButtonLabel()
+{
+    const wchar_t* label = (m_loopMode == kLoopOnce) ? L"Once" : (m_loopMode == kLoopPing) ? L"Ping" : L"Loop";
+    SetWindowTextW(m_seqLoopBtn, label);
+    InvalidateRect(m_seqLoopBtn, nullptr, FALSE);
+}
+
+void Sidebar::CommitFpsFromEdit()
+{
+    wchar_t buf[16] = {};
+    GetWindowTextW(m_seqFpsEdit, buf, 16);
+    int fps = _wtoi(buf);
+    if (fps < 1)
+        fps = 1;
+    if (fps > 120)
+        fps = 120;
+    m_fps = fps;
+    wchar_t norm[16];
+    swprintf_s(norm, L"%d", fps);
+    SetWindowTextW(m_seqFpsEdit, norm);
+    if (m_playing) // re-anchor the cadence at the new rate
+    {
+        m_playStartMs = timeGetTime();
+        m_playTickCount = 0;
+        ScheduleNextPlayTick();
+    }
+}
+
+void Sidebar::SetFps(int fps)
+{
+    if (fps < 1)
+        fps = 1;
+    if (fps > 120)
+        fps = 120;
+    m_fps = fps;
+    wchar_t buf[16];
+    swprintf_s(buf, L"%d", fps);
+    SetWindowTextW(m_seqFpsEdit, buf);
+}
+
+void Sidebar::ResetPlaybackForTab(int fps, int loopMode)
+{
+    StopPlayback();
+    SetFps(fps);
+    m_loopMode = (loopMode >= 0 && loopMode <= 2) ? loopMode : kLoopLoop;
+    UpdateLoopButtonLabel();
+    if (onLoopModeChanged)
+        onLoopModeChanged(m_loopMode); // update the cache's prefetch policy
+}
+
+void Sidebar::TogglePlayback()
+{
+    if (m_playing)
+        StopPlayback();
+    else
+        StartPlayback();
+}
+
+// Query the prefetch cache and repaint the timeline if residency changed.
+void Sidebar::PollCacheStates()
+{
+    if (!m_seqActive || !onQueryCacheStates)
+        return;
+    std::vector<uint8_t> states;
+    onQueryCacheStates(states);
+    if (states != m_cacheStates)
+    {
+        m_cacheStates = std::move(states);
+        InvalidateRect(m_hwnd, &m_timelineRect, FALSE);
+    }
+}
+
+// Shade the timeline track by prefetch residency: resident frames blend into the
+// panel background, not-yet-loaded frames are amber, the frame decoding now is
+// brighter amber. Drawn via NM_CUSTOMDRAW over the whole control rect.
+void Sidebar::DrawTimelineCache(HDC hdc, const RECT& rc) const
+{
+    const COLORREF kResident = Colors::Background; // loaded — unobtrusive
+    const COLORREF kPending = RGB(96, 74, 38);     // not loaded — muted amber
+    const COLORREF kLoading = RGB(208, 150, 52);   // decoding now — bright amber
+
+    int total = static_cast<int>(m_cacheStates.size());
+    if (total <= 0)
+    {
+        HBRUSH b = CreateSolidBrush(kResident);
+        FillRect(hdc, &rc, b);
+        DeleteObject(b);
+        return;
+    }
+
+    HBRUSH brushes[3] = {CreateSolidBrush(kPending), CreateSolidBrush(kLoading), CreateSolidBrush(kResident)};
+    int width = rc.right - rc.left;
+    for (int i = 0; i < total; ++i)
+    {
+        RECT band;
+        band.left = rc.left + MulDiv(i, width, total);
+        band.right = rc.left + MulDiv(i + 1, width, total);
+        band.top = rc.top;
+        band.bottom = rc.bottom;
+        uint8_t st = m_cacheStates[i];
+        FillRect(hdc, &band, brushes[st <= 2 ? st : 0]);
+    }
+    for (HBRUSH b : brushes)
+        DeleteObject(b);
+
+    // Border
+    HPEN borderPen = CreatePen(PS_SOLID, 1, Colors::ButtonBorder);
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, borderPen));
+    HBRUSH oldBr = static_cast<HBRUSH>(SelectObject(hdc, GetStockObject(NULL_BRUSH)));
+    Rectangle(hdc, rc.left, rc.top, rc.right, rc.bottom);
+    SelectObject(hdc, oldBr);
+
+    // Playhead marker at the current frame.
+    int denom = (total > 1) ? (total - 1) : 1;
+    int px = rc.left + MulDiv(m_seqCurrentIndex, width - 1, denom);
+    HPEN headPen = CreatePen(PS_SOLID, MulDiv(2, GetDpiForWindow(m_hwnd), 96), Colors::TextBright);
+    SelectObject(hdc, headPen);
+    MoveToEx(hdc, px, rc.top, nullptr);
+    LineTo(hdc, px, rc.bottom);
+    SelectObject(hdc, oldPen);
+    DeleteObject(headPen);
+    DeleteObject(borderPen);
+}
+
+void Sidebar::ScrubTimelineToX(int x)
+{
+    int total = m_seqTotalFrames;
+    if (total <= 1)
+        return;
+    int width = m_timelineRect.right - m_timelineRect.left;
+    if (width <= 0)
+        return;
+    int rel = x - m_timelineRect.left;
+    rel = (std::max)(0, (std::min)(rel, width - 1));
+    int idx = MulDiv(rel, total - 1, width - 1);
+    int delta = idx - m_seqCurrentIndex;
+    if (delta != 0 && onSequenceNav)
+        onSequenceNav(delta);
+}
+
+void Sidebar::StartPlayback()
+{
+    if (m_playing || !m_seqActive || m_seqTotalFrames <= 1)
+        return;
+    // Once mode at the last frame would stop immediately — restart from frame 0.
+    if (m_loopMode == kLoopOnce && m_seqCurrentIndex >= m_seqTotalFrames - 1 && onSequenceNav)
+        onSequenceNav(-m_seqCurrentIndex);
+    m_playing = true;
+    m_playDir = 1;
+    timeBeginPeriod(1); // raise timer resolution so the cadence can hit the target fps
+    m_playStartMs = timeGetTime();
+    m_playTickCount = 0;
+    ScheduleNextPlayTick();
+    UpdatePlayButtonLabel();
+}
+
+// Schedule the next playback tick so that tick N fires at anchor + N*(1000/fps),
+// compensating for per-frame work and timer jitter. Re-anchors if we fall more
+// than a frame behind, so a hiccup doesn't trigger a catch-up burst.
+void Sidebar::ScheduleNextPlayTick()
+{
+    double frameMs = 1000.0 / m_fps;
+    DWORD now = timeGetTime();
+    double target = static_cast<double>(m_playStartMs) + (m_playTickCount + 1) * frameMs;
+    double delay = target - static_cast<double>(now);
+    if (delay < 1.0)
+    {
+        if (static_cast<double>(now) - target > frameMs)
+        {
+            m_playStartMs = now; // badly behind — drop the slip and restart the clock
+            m_playTickCount = 0;
+        }
+        delay = 1.0;
+    }
+    SetTimer(m_hwnd, kSeqPlayTimerId, static_cast<UINT>(delay + 0.5), nullptr);
+}
+
+void Sidebar::StopPlayback()
+{
+    if (!m_playing)
+        return;
+    m_playing = false;
+    KillTimer(m_hwnd, kSeqPlayTimerId);
+    timeEndPeriod(1);
+    UpdatePlayButtonLabel();
+}
+
+void Sidebar::PlayTick()
+{
+    if (!m_playing || m_seqTotalFrames <= 1)
+        return;
+
+    int last = m_seqTotalFrames - 1;
+    int next = m_seqCurrentIndex + m_playDir;
+
+    if (next > last)
+    {
+        if (m_loopMode == kLoopLoop)
+            next = 0;
+        else if (m_loopMode == kLoopPing)
+        {
+            m_playDir = -1;
+            next = m_seqCurrentIndex - 1;
+        }
+        else // Once
+        {
+            StopPlayback();
+            return;
+        }
+    }
+    else if (next < 0) // ping-pong hitting the start
+    {
+        m_playDir = 1;
+        next = m_seqCurrentIndex + 1;
+    }
+
+    int delta = next - m_seqCurrentIndex;
+    if (delta != 0 && onSequenceNav)
+        onSequenceNav(delta); // App advances, then calls back SetSequenceState
+
+    if (m_playing) // StopPlayback (Once at end) may have cleared this
+    {
+        m_playTickCount++;
+        ScheduleNextPlayTick();
+    }
 }
 
 void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
@@ -462,8 +752,8 @@ void Sidebar::LayoutControls()
     // Histogram area is painted in OnPaint — just skip past it
     y += histH + MulDiv(4, dpi, 96);
 
-    // 5 channel + 5 mode + 2 focus + 1 swap + 4 seq btns + 1 seq edit + exposure + auto + gamma + layerlist = 22
-    HDWP hdwp = BeginDeferWindowPos(22);
+    // 22 base controls + 4 playback (play, fps, loop, timeline) = 26
+    HDWP hdwp = BeginDeferWindowPos(26);
 
     // Channel buttons — adjacent, forming a single button group
     {
@@ -547,7 +837,33 @@ void Sidebar::LayoutControls()
         x += navBtnW;
         hdwp = DeferWindowPos(hdwp, m_seqLastBtn, nullptr, x, y, navBtnW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
 
-        y += buttonH + m;
+        y += buttonH + MulDiv(4, dpi, 96);
+
+        // Playback row: [Play] [fps] [loop-mode]
+        int gap = MulDiv(4, dpi, 96);
+        int totalW = w - 2 * m;
+        int fpsW = MulDiv(40, dpi, 96);
+        int loopW = MulDiv(48, dpi, 96);
+        int playW = totalW - fpsW - loopW - 2 * gap;
+        if (playW < MulDiv(40, dpi, 96))
+            playW = MulDiv(40, dpi, 96);
+        x = m;
+        hdwp = DeferWindowPos(hdwp, m_seqPlayBtn, nullptr, x, y, playW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += playW + gap;
+        hdwp = DeferWindowPos(hdwp, m_seqFpsEdit, nullptr, x, y, fpsW, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+        x += fpsW + gap;
+        hdwp = DeferWindowPos(hdwp, m_seqLoopBtn, nullptr, x, y, m + totalW - x, buttonH, SWP_NOZORDER | SWP_NOACTIVATE);
+
+        y += buttonH + gap;
+
+        // Timeline scrubber row (full width) — custom-drawn in OnPaint; record its rect.
+        m_timelineRect = {m, y, m + totalW, y + trackH};
+
+        y += trackH + m;
+    }
+    else
+    {
+        m_timelineRect = {};
     }
 
     // Exposure label is drawn in OnPaint
@@ -941,10 +1257,19 @@ void Sidebar::OnPaint()
         wchar_t seqLabel[64];
         swprintf_s(seqLabel, L"Sequence (%d frames)", m_seqTotalFrames);
         DrawTextW(memDC, seqLabel, -1, &seqLabelRect, DT_LEFT | DT_SINGLELINE | DT_VCENTER);
-        y += labelH + MulDiv(2, dpi, 96);
 
-        // Skip nav buttons row
-        y += MulDiv(22, dpi, 96) + m;
+        // The nav + playback button rows are child controls; the timeline is
+        // custom-drawn here using its laid-out rect (shows prefetch residency).
+        DrawTimelineCache(memDC, m_timelineRect);
+
+        // Advance y past the whole sequence section to match LayoutControls:
+        // label + nav row + playback row + timeline row.
+        int buttonH = MulDiv(22, dpi, 96);
+        int trackH = MulDiv(24, dpi, 96);
+        y += labelH + MulDiv(2, dpi, 96);
+        y += buttonH + MulDiv(4, dpi, 96);
+        y += buttonH + MulDiv(4, dpi, 96);
+        y += trackH + m;
     }
 
     // --- Exposure section ---
@@ -1043,6 +1368,36 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
     case WM_NOTIFY:
         return 0;
 
+    case WM_LBUTTONDOWN:
+    {
+        POINT pt = {GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        if (self->m_seqActive && PtInRect(&self->m_timelineRect, pt))
+        {
+            self->m_scrubbing = true;
+            SetCapture(hwnd);
+            self->ScrubTimelineToX(pt.x);
+            return 0;
+        }
+        break;
+    }
+
+    case WM_MOUSEMOVE:
+        if (self->m_scrubbing)
+        {
+            self->ScrubTimelineToX(GET_X_LPARAM(lParam));
+            return 0;
+        }
+        break;
+
+    case WM_LBUTTONUP:
+        if (self->m_scrubbing)
+        {
+            self->m_scrubbing = false;
+            ReleaseCapture();
+            return 0;
+        }
+        break;
+
     case WM_COMMAND:
     {
         int id = LOWORD(wParam);
@@ -1117,6 +1472,27 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             int frameNum = _wtoi(buf);
             if (frameNum >= 0 && self->onSequenceJump)
                 self->onSequenceJump(frameNum);
+        }
+        else if (id == kSeqPlayBtnId && code == BN_CLICKED)
+        {
+            if (self->m_playing)
+                self->StopPlayback();
+            else
+                self->StartPlayback();
+            // Drop focus so the button doesn't also eat the spacebar shortcut.
+            SetFocus(self->m_parent);
+        }
+        else if (id == kSeqLoopBtnId && code == BN_CLICKED)
+        {
+            self->m_loopMode = (self->m_loopMode + 1) % 3; // Loop -> Once -> Ping
+            self->UpdateLoopButtonLabel();
+            if (self->onLoopModeChanged)
+                self->onLoopModeChanged(self->m_loopMode);
+            SetFocus(self->m_parent);
+        }
+        else if (id == kSeqFpsEditId && code == EN_KILLFOCUS)
+        {
+            self->CommitFpsFromEdit();
         }
         else if (id == kLayerListId && code == LBN_SELCHANGE)
         {
@@ -1356,13 +1732,15 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             return TRUE;
         }
 
-        // Owner-drawn sequence nav buttons (same style as Auto)
-        if (dis->CtlID >= static_cast<UINT>(kSeqFirstBtnId) &&
-            dis->CtlID <= static_cast<UINT>(kSeqLastBtnId))
+        // Owner-drawn sequence nav + playback buttons (same style as Auto)
+        if ((dis->CtlID >= static_cast<UINT>(kSeqFirstBtnId) && dis->CtlID <= static_cast<UINT>(kSeqLastBtnId)) ||
+            dis->CtlID == static_cast<UINT>(kSeqPlayBtnId) || dis->CtlID == static_cast<UINT>(kSeqLoopBtnId))
         {
             bool pressed = (dis->itemState & ODS_SELECTED) != 0;
             bool disabled = (dis->itemState & ODS_DISABLED) != 0;
-            COLORREF bgColor = pressed ? Colors::ButtonPressed : Colors::Background;
+            // Highlight the Play button while playback is active.
+            bool active = (dis->CtlID == static_cast<UINT>(kSeqPlayBtnId) && self->m_playing);
+            COLORREF bgColor = pressed ? Colors::ButtonPressed : (active ? Colors::Surface : Colors::Background);
             HBRUSH bg = CreateSolidBrush(bgColor);
             FillRect(dis->hDC, &dis->rcItem, bg);
             DeleteObject(bg);
@@ -1379,8 +1757,8 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             SetTextColor(dis->hDC, disabled ? Colors::TextDim : Colors::TextPrimary);
             HFONT font = self->m_font ? self->m_font : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
             HFONT oldFont = static_cast<HFONT>(SelectObject(dis->hDC, font));
-            wchar_t label[8] = {};
-            GetWindowTextW(dis->hwndItem, label, 8);
+            wchar_t label[16] = {};
+            GetWindowTextW(dis->hwndItem, label, 16);
             DrawTextW(dis->hDC, label, -1, &dis->rcItem, DT_CENTER | DT_SINGLELINE | DT_VCENTER);
             SelectObject(dis->hDC, oldFont);
             return TRUE;
@@ -1546,6 +1924,14 @@ LRESULT CALLBACK Sidebar::WndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lPa
             SetTimer(hwnd, kSeqRepeatTimerId, kSeqRepeatMs, nullptr);
             if (self->onSequenceNav)
                 self->onSequenceNav(self->m_seqRepeatDelta);
+        }
+        else if (wParam == kSeqPlayTimerId)
+        {
+            self->PlayTick();
+        }
+        else if (wParam == kSeqCacheTimerId)
+        {
+            self->PollCacheStates();
         }
         return 0;
 
