@@ -733,8 +733,21 @@ void App::OnCommand(int commandId)
     case IDM_FILE_RELOAD:
         if (m_activeTab >= 0)
         {
+            // For a sequence, drop every cached frame (all layers) so the changed
+            // file on disk is re-decoded rather than served stale during playback.
+            const bool seqTab = IsSequenceTab();
+            if (seqTab)
+            {
+                m_seqCache.RemoveSequence(SequenceCacheId(m_openTabs[m_activeTab].sequence));
+                m_activeCacheId.clear(); // force EnsureSequenceCache to re-activate + re-warm
+            }
             LoadFile(m_openTabs[m_activeTab].path);
             m_openTabs[m_activeTab].exposure = m_viewport.exposure;
+            if (seqTab)
+            {
+                EnsureSequenceCache();                                              // re-warm from disk
+                m_seqCache.Put(m_openTabs[m_activeTab].sequence.currentIndex, m_image); // seed the reloaded frame
+            }
         }
         break;
 
@@ -1760,8 +1773,6 @@ void App::NavigateSequence(int delta)
         if (loaded)
             m_seqCache.Put(newIndex, m_image);
     }
-    const int64_t tApplied = StartupTiming::Now();
-
     if (loaded)
     {
         // Update tab title in place (no remove/add to avoid layout flicker)
@@ -1782,24 +1793,15 @@ void App::NavigateSequence(int delta)
         }
 
         // Render immediately (within this input handler) so the frame appears now,
-        // rather than after a message-loop round trip. Then record click→present
-        // latency telemetry.
+        // rather than after a message-loop round trip.
         Render();
         m_needsRedraw = false;
 
-        const int64_t tEnd = StartupTiming::Now();
-        m_lastAdvanceMs = m_timing->MsBetween(tStart, tEnd);
-
-        wchar_t dbg[160];
-        swprintf_s(dbg, L"[EXRay] advance %.1f ms (%s: load+upload %.1f, draw %.1f)\n", m_lastAdvanceMs,
-                   cacheHit ? L"cache hit" : L"cache MISS", m_timing->MsBetween(tStart, tApplied),
-                   m_timing->MsBetween(tApplied, tEnd));
-        OutputDebugStringW(dbg);
-
-        UpdateImageStatusText(); // refresh status bar to show the new latency
-
         if (m_playBench)
-            RecordPlayBenchSample(m_lastAdvanceMs, cacheHit, tEnd);
+        {
+            const int64_t tEnd = StartupTiming::Now();
+            RecordPlayBenchSample(m_timing->MsBetween(tStart, tEnd), cacheHit, tEnd);
+        }
     }
 
     SyncSequencePanel();
@@ -1915,14 +1917,6 @@ void App::UpdateImageStatusText()
         MultiByteToWideChar(CP_UTF8, 0, m_image.colorSpace.c_str(), -1, csName, 64);
         wcscat_s(infoBuf, L" | ");
         wcscat_s(infoBuf, csName);
-    }
-
-    // Frame-advance latency telemetry (sequences only)
-    if (IsSequenceTab() && m_lastAdvanceMs >= 0.0)
-    {
-        wchar_t advBuf[32];
-        swprintf_s(advBuf, L" | adv %.1f ms", m_lastAdvanceMs);
-        wcscat_s(infoBuf, advBuf);
     }
 
     m_window.SetStatusText(2, infoBuf);

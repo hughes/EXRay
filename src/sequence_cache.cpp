@@ -120,6 +120,32 @@ void SequenceCache::Remove(const std::wstring& id)
     m_cv.notify_all();
 }
 
+void SequenceCache::RemoveSequence(const std::wstring& baseId)
+{
+    {
+        std::lock_guard<std::mutex> lk(m_mutex);
+        const std::wstring layerPrefix = baseId + L"|L";
+        for (auto it = m_seqs.begin(); it != m_seqs.end();)
+        {
+            const std::wstring& id = it->first;
+            if (id == baseId || id.rfind(layerPrefix, 0) == 0) // base entry or one of its layers
+            {
+                for (const Slot& s : it->second.slots)
+                    if (s.state == SlotState::Ready && s.image.IsLoaded())
+                        m_bytes -= FrameBytes(s.image);
+                if (m_activeId == id)
+                    m_activeId.clear();
+                it = m_seqs.erase(it);
+            }
+            else
+            {
+                ++it;
+            }
+        }
+    }
+    m_cv.notify_all();
+}
+
 void SequenceCache::Clear()
 {
     StopWorker();

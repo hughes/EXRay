@@ -48,6 +48,11 @@ class SequenceCache
     // Drop a sequence's frames entirely (its tab was closed).
     void Remove(const std::wstring& id);
 
+    // Drop every cached entry for a sequence — the default-RGBA entry and all of
+    // its per-layer entries (`baseId` and `baseId|L…`). Used on reload so changed
+    // files are re-decoded rather than served stale.
+    void RemoveSequence(const std::wstring& baseId);
+
     // Stop the worker and release everything.
     void Clear();
 

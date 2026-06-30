@@ -154,7 +154,6 @@ class App
     void NavigateSequence(int delta); // +1 next, -1 prev
     void JumpToFrame(int frameNumber);
     void SyncSequencePanel();
-    double m_lastAdvanceMs = -1.0; // click→present latency of the last frame advance (telemetry)
 
     // Prefetch cache: keeps decoded frames of every open sequence resident in
     // RAM (under a shared budget, LRU eviction) so navigation is a GPU upload and
