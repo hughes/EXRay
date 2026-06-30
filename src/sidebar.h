@@ -178,6 +178,7 @@ class Sidebar
     HWND m_seqPlayBtn = nullptr;
     HWND m_seqFpsEdit = nullptr;
     HWND m_seqLoopBtn = nullptr;
+    HWND m_tooltip = nullptr; // shared tooltip for the playback controls
     // Timeline is custom-drawn in OnPaint (so prefetch shading works regardless of
     // control theming) and scrubbed via mouse in WndProc.
     RECT m_timelineRect = {};

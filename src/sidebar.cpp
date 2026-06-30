@@ -203,6 +203,28 @@ bool Sidebar::Create(HWND parent, HINSTANCE hInstance)
                                    reinterpret_cast<HMENU>(static_cast<INT_PTR>(kSeqLoopBtnId)), hInstance, nullptr);
     // (Timeline is custom-drawn in OnPaint — no child control.)
 
+    // Tooltips for the playback controls (the fps field is just a number otherwise).
+    m_tooltip = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, m_hwnd, nullptr, hInstance,
+                                nullptr);
+    if (m_tooltip)
+    {
+        SendMessageW(m_tooltip, TTM_SETMAXTIPWIDTH, 0, 300);
+        auto addTip = [&](HWND ctrl, const wchar_t* text)
+        {
+            TTTOOLINFOW ti = {};
+            ti.cbSize = sizeof(ti);
+            ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            ti.hwnd = m_hwnd;
+            ti.uId = reinterpret_cast<UINT_PTR>(ctrl);
+            ti.lpszText = const_cast<wchar_t*>(text);
+            SendMessageW(m_tooltip, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        };
+        addTip(m_seqFpsEdit, L"Playback frame rate (frames per second)");
+        addTip(m_seqPlayBtn, L"Play / pause  (Spacebar)");
+        addTip(m_seqLoopBtn, L"At the end: Loop / Once / Ping-pong");
+    }
+
     // Layer listbox (hidden until layers are set) — owner-draw for hierarchical indentation
     m_layerList = CreateWindowExW(
         0, WC_LISTBOXW, nullptr,
