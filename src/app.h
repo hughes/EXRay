@@ -79,6 +79,8 @@ class App
     // Layer info for current file
     ExrFileInfo m_layerInfo;
     int m_activeLayer = 0;
+    std::vector<float> m_layerExposure; // per-layer EV for the active tab (NaN = unset)
+    void ResetLayerExposures();         // size to current layers; default layer = current EV
 
     // Grid state
     bool m_showGrid = true;
@@ -139,9 +141,10 @@ class App
         HistogramData histogram;
         ExrFileInfo layerInfo;
         int activeLayer = 0;
-        SequenceInfo sequence; // empty if not a sequence
-        int playbackFps = 24;  // per-tab playback rate
-        int loopMode = 0;      // per-tab end behavior: 0=Loop,1=Once,2=Ping
+        SequenceInfo sequence;          // empty if not a sequence
+        int playbackFps = 24;           // per-tab playback rate
+        int loopMode = 0;               // per-tab end behavior: 0=Loop,1=Once,2=Ping
+        std::vector<float> layerExposure; // per-layer EV (NaN = not yet auto-computed)
     };
 
     bool IsSequenceTab() const

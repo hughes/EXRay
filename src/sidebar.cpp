@@ -649,8 +649,43 @@ void Sidebar::PlayTick()
     }
 }
 
+// True if two layer lists would produce the same listbox (same entries/order).
+static bool SameLayerStructure(const ExrFileInfo& a, const ExrFileInfo& b)
+{
+    if (a.partCount != b.partCount || a.layers.size() != b.layers.size())
+        return false;
+    for (size_t i = 0; i < a.layers.size(); ++i)
+    {
+        const ExrLayer& x = a.layers[i];
+        const ExrLayer& y = b.layers[i];
+        if (x.name != y.name || x.partIndex != y.partIndex || x.mipLevel != y.mipLevel ||
+            x.numMipLevels != y.numMipLevels)
+            return false;
+    }
+    return true;
+}
+
 void Sidebar::SetLayers(const ExrFileInfo& info, int activeLayer)
 {
+    // Same structure as already shown (e.g. every frame during sequence playback)?
+    // Skip the full listbox rebuild — it's wasteful and races with a user click
+    // selecting a different layer mid-playback. Just sync the selection if needed.
+    if (SameLayerStructure(info, m_layerInfo))
+    {
+        m_layerInfo = info; // keep stored copy current (channels, names)
+        if (activeLayer != m_activeLayer)
+        {
+            m_activeLayer = activeLayer;
+            if (activeLayer >= 0 && activeLayer < static_cast<int>(m_layerListMapping.size()))
+            {
+                m_suppressLayerChange = true;
+                SendMessageW(m_layerList, LB_SETCURSEL, m_layerListMapping[activeLayer], 0);
+                m_suppressLayerChange = false;
+            }
+        }
+        return;
+    }
+
     m_layerInfo = info;
     m_activeLayer = activeLayer;
 

@@ -60,7 +60,7 @@ void SequenceCache::SetBudget(size_t bytes)
     m_cv.notify_all(); // a raised budget may let the worker resume prefetching
 }
 
-void SequenceCache::Activate(const std::wstring& id, std::vector<std::wstring> paths)
+void SequenceCache::Activate(const std::wstring& id, std::vector<std::wstring> paths, const ExrLayer* layer)
 {
     {
         std::lock_guard<std::mutex> lk(m_mutex);
@@ -72,6 +72,9 @@ void SequenceCache::Activate(const std::wstring& id, std::vector<std::wstring> p
             Seq seq;
             seq.paths = std::move(paths);
             seq.slots.assign(seq.paths.size(), Slot{});
+            seq.useLayer = (layer != nullptr);
+            if (layer)
+                seq.layer = *layer;
             m_seqs.emplace(id, std::move(seq));
         }
         else if (it->second.paths.size() != paths.size())
@@ -82,6 +85,9 @@ void SequenceCache::Activate(const std::wstring& id, std::vector<std::wstring> p
                     m_bytes -= FrameBytes(s.image);
             it->second.paths = std::move(paths);
             it->second.slots.assign(it->second.paths.size(), Slot{});
+            it->second.useLayer = (layer != nullptr);
+            if (layer)
+                it->second.layer = *layer;
         }
         StartWorker();
     }
@@ -340,12 +346,15 @@ void SequenceCache::WorkerLoop()
             continue;
         }
 
-        m_seqs[seqId].slots[idx].state = SlotState::Loading;
+        Seq& picked = m_seqs[seqId];
+        picked.slots[idx].state = SlotState::Loading;
+        const bool useLayer = picked.useLayer;
+        const ExrLayer layer = picked.layer; // copy for use outside the lock
 
         lk.unlock();
         ImageData img;
         std::string err;
-        bool ok = ImageLoader::LoadEXR(path, img, err);
+        bool ok = useLayer ? ImageLoader::LoadEXRLayer(path, layer, img, err) : ImageLoader::LoadEXR(path, img, err);
         lk.lock();
 
         if (m_stop)

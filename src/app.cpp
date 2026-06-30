@@ -11,7 +11,9 @@
 
 #include <ImfThreading.h>
 #include <algorithm>
+#include <cmath>
 #include <cstdlib>
+#include <limits>
 #include <shlobj.h>
 #include <thread>
 
@@ -433,6 +435,7 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             std::string layerError;
             ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
             m_activeLayer = 0;
+            ResetLayerExposures();
 
             // Detect whether the launched file belongs to a numbered sequence so
             // command-line / double-click opens enable sequence navigation (and
@@ -1042,6 +1045,11 @@ void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSeq
         }
     }
 
+    // A full (non-sequence) load rescanned the layers — reset per-layer exposures,
+    // seeding the default layer with the exposure just applied.
+    if (!isSequenceStep)
+        ResetLayerExposures();
+
     wchar_t title[MAX_PATH + 16];
     swprintf_s(title, L"EXRay - %s", path.c_str());
     m_window.SetTitle(title);
@@ -1049,6 +1057,13 @@ void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSeq
     SyncSidebar();
     UpdateImageStatusText();
     m_needsRedraw = true;
+}
+
+void App::ResetLayerExposures()
+{
+    m_layerExposure.assign(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
+    if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
+        m_layerExposure[m_activeLayer] = m_viewport.exposure;
 }
 
 bool App::LoadLayer(int layerIndex)
@@ -1070,6 +1085,12 @@ bool App::LoadLayer(int layerIndex)
                            oldLayer.partIndex == newLayer.partIndex;
 
         float oldWidth = m_viewport.imageWidth;
+
+        // Save the outgoing layer's exposure before switching.
+        if (m_layerExposure.size() != m_layerInfo.layers.size())
+            m_layerExposure.resize(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
+        if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
+            m_layerExposure[m_activeLayer] = m_viewport.exposure;
 
         m_image = std::move(newImage);
         m_renderer.UploadImage(m_image);
@@ -1096,10 +1117,22 @@ bool App::LoadLayer(int layerIndex)
             if (isMipSwitch && oldWidth > 0.0f)
                 m_viewport.zoom =
                     (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
+
+            // Restore this layer's exposure, auto-computing it the first time it's
+            // viewed (depth vs RGB need very different exposures).
+            if (m_activeLayer < static_cast<int>(m_layerExposure.size()))
+            {
+                if (std::isnan(m_layerExposure[m_activeLayer]))
+                    m_layerExposure[m_activeLayer] = m_histogram.isValid ? m_histogram.autoExposure : m_viewport.exposure;
+                m_viewport.exposure = m_layerExposure[m_activeLayer];
+            }
         }
 
         SyncSidebar();
         UpdateImageStatusText();
+        // Re-point the prefetch cache at this layer so it warms in the background
+        // (no-op for non-sequence tabs).
+        EnsureSequenceCache();
         m_needsRedraw = true;
         return true;
     }
@@ -1232,6 +1265,7 @@ void App::SwitchToTab(int index)
     m_histogram = std::move(m_openTabs[index].histogram);
     m_layerInfo = m_openTabs[index].layerInfo;
     m_activeLayer = m_openTabs[index].activeLayer;
+    m_layerExposure = m_openTabs[index].layerExposure;
     m_renderer.UploadImage(m_image);
 
     // Restore this tab's playback settings (stops any playback from the old tab).
@@ -1361,6 +1395,10 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].gamma = m_viewport.gamma;
         m_openTabs[m_activeTab].layerInfo = m_layerInfo;
         m_openTabs[m_activeTab].activeLayer = m_activeLayer;
+        // Capture the active layer's current exposure, then stow the per-layer set.
+        if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
+            m_layerExposure[m_activeLayer] = m_viewport.exposure;
+        m_openTabs[m_activeTab].layerExposure = m_layerExposure;
         // Per-tab playback settings
         Sidebar& sb = m_window.GetSidebar();
         m_openTabs[m_activeTab].playbackFps = sb.GetFps();
@@ -1619,6 +1657,15 @@ void App::EnsureSequenceCache()
 
     const SequenceInfo& seq = m_openTabs[m_activeTab].sequence;
     std::wstring id = SequenceCacheId(seq);
+
+    // A non-default layer gets its own cache entry, prefetched as that layer.
+    const ExrLayer* layerPtr = nullptr;
+    if (m_activeLayer > 0 && m_activeLayer < static_cast<int>(m_layerInfo.layers.size()))
+    {
+        id += L"|L" + std::to_wstring(m_activeLayer);
+        layerPtr = &m_layerInfo.layers[m_activeLayer];
+    }
+
     if (m_activeCacheId != id)
     {
         m_seqCache.SetBudget(SequenceCacheBudget());
@@ -1626,7 +1673,7 @@ void App::EnsureSequenceCache()
         paths.reserve(seq.frames.size());
         for (const SequenceFrame& f : seq.frames)
             paths.push_back(f.path);
-        m_seqCache.Activate(id, std::move(paths)); // keeps this sequence's warm frames if already cached
+        m_seqCache.Activate(id, std::move(paths), layerPtr); // keeps this seq+layer's warm frames if cached
         m_activeCacheId = id;
     }
     m_seqCache.SetFocus(seq.currentIndex);
@@ -1656,46 +1703,43 @@ void App::NavigateSequence(int delta)
     EnsureSequenceCache();
     m_seqCache.SetFocus(newIndex);
 
-    // Load the new frame (sequence step: locked viewport, deferred histogram, no layer rescan).
+    // Load the new frame. The cache is configured for the active layer (default
+    // RGBA or e.g. Z depth) by EnsureSequenceCache, so a hit is just a GPU upload
+    // for either; a miss decodes the right thing synchronously and seeds the cache.
     bool loaded;
     bool cacheHit = false;
     const bool useLayer = (m_activeLayer > 0 && m_activeLayer < static_cast<int>(m_layerInfo.layers.size()));
 
-    if (useLayer)
+    ImageData cached;
+    if (m_seqCache.TryGet(newIndex, cached))
     {
-        // A non-default layer (e.g. Z depth) is selected — load it for the new
-        // frame so the selection persists. The prefetch cache holds default RGBA
-        // only, so it's bypassed here (layer playback isn't cache-accelerated).
+        ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
+        loaded = true;
+        cacheHit = true;
+    }
+    else if (useLayer)
+    {
         std::string err;
         ImageData img;
         if (ImageLoader::LoadEXRLayer(framePath, m_layerInfo.layers[m_activeLayer], img, err))
         {
             ApplyLoadedImage(std::move(img), framePath, /*isSequenceStep=*/true);
             loaded = true;
+            m_seqCache.Put(newIndex, m_image);
         }
         else
         {
-            // Layer missing in this frame → fall back to default RGBA.
+            // Layer missing in this frame → fall back to default RGBA (no Put;
+            // the active cache is the layer cache).
             m_activeLayer = 0;
             loaded = LoadFile(framePath, /*isSequenceStep=*/true);
         }
     }
     else
     {
-        // Default layer: cache hit → GPU upload only; miss → decode, then seed cache.
-        ImageData cached;
-        if (m_seqCache.TryGet(newIndex, cached))
-        {
-            ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
-            loaded = true;
-            cacheHit = true;
-        }
-        else
-        {
-            loaded = LoadFile(framePath, /*isSequenceStep=*/true);
-            if (loaded)
-                m_seqCache.Put(newIndex, m_image);
-        }
+        loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+        if (loaded)
+            m_seqCache.Put(newIndex, m_image);
     }
     const int64_t tApplied = StartupTiming::Now();
 

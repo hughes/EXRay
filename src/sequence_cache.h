@@ -34,9 +34,12 @@ class SequenceCache
     void SetBudget(size_t bytes);
 
     // Make sequence `id` active (creates its entry if new, KEEPS any frames it
-    // already has). `paths` are the frame file paths in display order. The worker
-    // prefetches this sequence; TryGet/Put/SnapshotStates/SetFocus target it.
-    void Activate(const std::wstring& id, std::vector<std::wstring> paths);
+    // already has). `paths` are the frame file paths in display order. If `layer`
+    // is non-null the worker decodes that layer (e.g. Z depth) for each frame
+    // instead of the default RGBA; `id` should encode the layer so different
+    // layers get separate cache entries. The worker prefetches this sequence;
+    // TryGet/Put/SnapshotStates/SetFocus target it.
+    void Activate(const std::wstring& id, std::vector<std::wstring> paths, const ExrLayer* layer = nullptr);
 
     // No active sequence (e.g. a still-image tab): stop prefetching but keep all
     // resident frames for when a sequence becomes active again.
@@ -82,6 +85,8 @@ class SequenceCache
     {
         std::vector<std::wstring> paths;
         std::vector<Slot> slots;
+        bool useLayer = false; // decode `layer` instead of default RGBA
+        ExrLayer layer;
     };
 
     void StartWorker();
