@@ -10,13 +10,17 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
-// Background decoder that keeps a window of decoded sequence frames resident in
-// RAM, so navigating (or playing) a sequence is just a GPU upload rather than a
-// disk read + EXR decompress. A single worker thread decodes frames outward from
-// the focused frame (forward-wrap play order) until the whole sequence is cached
-// or the memory budget is reached, then maintains a window around the focus.
+// Background decoder that keeps decoded sequence frames resident in RAM so
+// navigation/playback is a GPU upload rather than a disk decode.
+//
+// Holds frames from MULTIPLE sequences at once under a single global byte
+// budget: switching tabs keeps each sequence's frames warm (no reload) until
+// memory pressure evicts the least-recently-used frames. One background worker
+// prefetches the ACTIVE sequence in play order (forward-wrap from the focus);
+// inactive sequences simply retain what they already decoded.
 class SequenceCache
 {
   public:
@@ -26,28 +30,38 @@ class SequenceCache
     SequenceCache(const SequenceCache&) = delete;
     SequenceCache& operator=(const SequenceCache&) = delete;
 
-    // (Re)configure for a sequence identified by `id` (e.g. prefix+suffix). If
-    // `id` matches the current configuration this is a no-op, preserving the
-    // already-warm cache. Otherwise the cache resets and prefetch restarts.
-    void Configure(const std::wstring& id, std::vector<std::wstring> paths, size_t memoryBudgetBytes);
+    // Global memory budget in bytes (total across all cached sequences).
+    void SetBudget(size_t bytes);
 
-    // Stop the worker and release all cached frames.
+    // Make sequence `id` active (creates its entry if new, KEEPS any frames it
+    // already has). `paths` are the frame file paths in display order. The worker
+    // prefetches this sequence; TryGet/Put/SnapshotStates/SetFocus target it.
+    void Activate(const std::wstring& id, std::vector<std::wstring> paths);
+
+    // No active sequence (e.g. a still-image tab): stop prefetching but keep all
+    // resident frames for when a sequence becomes active again.
+    void Deactivate();
+
+    // Drop a sequence's frames entirely (its tab was closed).
+    void Remove(const std::wstring& id);
+
+    // Stop the worker and release everything.
     void Clear();
 
-    // Drive prefetch order / eviction window.
+    // Drive prefetch order / eviction window for the active sequence.
     void SetFocus(int index);
     // Frames behind focus to keep warm (0 = forward-only; >0 for ping-pong).
     void SetReverseLookback(int frames);
 
-    // Non-blocking: copy frame `index` into `out` if resident.
+    // Active sequence, non-blocking: copy frame `index` into `out` if resident.
     bool TryGet(int index, ImageData& out);
-    // Seed a frame the caller decoded synchronously.
+    // Seed a frame the caller decoded synchronously into the active sequence.
     void Put(int index, const ImageData& img);
-
-    const std::wstring& Id() const { return m_id; }
-    int ReadyCount() const;
-    // Per-frame residency snapshot: 0 = not loaded, 1 = decoding, 2 = resident.
+    // Active sequence residency snapshot: 0=not loaded,1=decoding,2=resident.
     void SnapshotStates(std::vector<uint8_t>& out) const;
+
+    // Id of the active sequence ("" if none). Main-thread use.
+    std::wstring ActiveId() const;
 
   private:
     enum class SlotState
@@ -61,6 +75,13 @@ class SequenceCache
     {
         SlotState state = SlotState::Empty;
         ImageData image;
+        uint64_t lastAccess = 0; // monotonic, for LRU eviction
+    };
+
+    struct Seq
+    {
+        std::vector<std::wstring> paths;
+        std::vector<Slot> slots;
     };
 
     void StartWorker();
@@ -68,22 +89,35 @@ class SequenceCache
     void WorkerLoop();
 
     // All of the following must be called with m_mutex held.
-    long FramePriorityLocked(int i) const;
-    int PickNextLocked() const;
-    void EvictLocked(int keepIndex);
+    Seq* ActiveSeqLocked();
+    const Seq* ActiveSeqLocked() const;
+    // Play-order priority within the active sequence (lower = sooner): focus first,
+    // small reverse lookback, then forward wrapping past the end to frame 0.
+    long FramePriorityLocked(int i, int n) const;
+    // Next frame the worker should decode: fills the active sequence's id/index/path,
+    // or returns false if there is nothing worth decoding right now.
+    bool PickNextLocked(std::wstring& outId, int& outIndex, std::wstring& outPath);
+    // Evict highest-score Ready frames until total resident bytes fit the budget.
+    // Inactive frames (older lastAccess = higher score) are dropped before active
+    // frames (kept by play-order priority). `keepId`/`keepIndex` is never evicted.
+    void EvictLocked(const std::wstring& keepId, int keepIndex);
     static size_t FrameBytes(const ImageData& img);
 
     mutable std::mutex m_mutex;
     std::condition_variable m_cv;
     std::thread m_worker;
     bool m_stop = false;
-    uint64_t m_generation = 0; // bumped on Configure/Clear to invalidate in-flight decodes
+    bool m_workerStarted = false;
 
-    std::wstring m_id;
-    std::vector<std::wstring> m_paths;
-    std::vector<Slot> m_slots;
+    std::unordered_map<std::wstring, Seq> m_seqs;
+    std::wstring m_activeId; // "" = none active
     int m_focus = 0;
-    int m_reverseLookback = 0; // frames behind focus to keep warm (ping-pong only)
+    int m_reverseLookback = 0;
     size_t m_budget = 0;
-    size_t m_bytes = 0; // total bytes of Ready slots
+    size_t m_bytes = 0;   // total resident bytes across all sequences
+    uint64_t m_clock = 1; // monotonic access counter for LRU
+
+    // Inactive frames always outrank active frames for eviction (drop inactive
+    // first). Larger than any active play-order priority (< ~2 * frame count).
+    static constexpr long kInactiveEvictBase = 1L << 30;
 };

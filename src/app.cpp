@@ -11,6 +11,7 @@
 
 #include <ImfThreading.h>
 #include <algorithm>
+#include <cstdlib>
 #include <shlobj.h>
 #include <thread>
 
@@ -1285,6 +1286,8 @@ void App::CloseCurrentTab()
 
     int closingIndex = m_activeTab;
     AdjustCompareAfterRemove(closingIndex);
+    if (!m_openTabs[closingIndex].sequence.frames.empty())
+        m_seqCache.Remove(SequenceCacheId(m_openTabs[closingIndex].sequence)); // free its cached frames
     m_openTabs.erase(m_openTabs.begin() + closingIndex);
     m_window.RemoveTab(closingIndex);
 
@@ -1335,6 +1338,8 @@ void App::CloseTabAtIndex(int index)
     }
 
     AdjustCompareAfterRemove(index);
+    if (!m_openTabs[index].sequence.frames.empty())
+        m_seqCache.Remove(SequenceCacheId(m_openTabs[index].sequence)); // free its cached frames
     m_openTabs.erase(m_openTabs.begin() + index);
     m_window.RemoveTab(index);
 
@@ -1575,6 +1580,14 @@ void App::UploadCompareTextures()
 
 size_t App::SequenceCacheBudget()
 {
+    // Manual override (MB) for testing/tuning, e.g. EXRAY_CACHE_MB=1024.
+    if (const char* env = std::getenv("EXRAY_CACHE_MB"))
+    {
+        long mb = std::atol(env);
+        if (mb > 0)
+            return static_cast<size_t>(mb) * 1024 * 1024;
+    }
+
     // Cap the prefetch cache at a fraction of physical RAM, with a hard ceiling.
     // A 1080p half-float frame is ~16 MB, so 6 GB holds ~370 frames.
     constexpr size_t kHardCeiling = size_t(6) * 1024 * 1024 * 1024;
@@ -1588,24 +1601,34 @@ size_t App::SequenceCacheBudget()
     return size_t(2) * 1024 * 1024 * 1024;
 }
 
+std::wstring App::SequenceCacheId(const SequenceInfo& seq)
+{
+    return seq.prefix + L"\x1f" + seq.suffix;
+}
+
 void App::EnsureSequenceCache()
 {
     if (!IsSequenceTab())
     {
-        m_seqCache.Clear();
+        // Stop prefetching but keep resident frames (LRU evicts under pressure),
+        // so returning to a sequence tab finds it still warm.
+        m_seqCache.Deactivate();
+        m_activeCacheId.clear();
         return;
     }
 
     const SequenceInfo& seq = m_openTabs[m_activeTab].sequence;
-    std::wstring id = seq.prefix + L"\x1f" + seq.suffix;
-    if (m_seqCache.Id() == id)
-        return; // already warm for this sequence
-
-    std::vector<std::wstring> paths;
-    paths.reserve(seq.frames.size());
-    for (const SequenceFrame& f : seq.frames)
-        paths.push_back(f.path);
-    m_seqCache.Configure(id, std::move(paths), SequenceCacheBudget());
+    std::wstring id = SequenceCacheId(seq);
+    if (m_activeCacheId != id)
+    {
+        m_seqCache.SetBudget(SequenceCacheBudget());
+        std::vector<std::wstring> paths;
+        paths.reserve(seq.frames.size());
+        for (const SequenceFrame& f : seq.frames)
+            paths.push_back(f.path);
+        m_seqCache.Activate(id, std::move(paths)); // keeps this sequence's warm frames if already cached
+        m_activeCacheId = id;
+    }
     m_seqCache.SetFocus(seq.currentIndex);
 }
 

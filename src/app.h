@@ -153,11 +153,14 @@ class App
     void SyncSequencePanel();
     double m_lastAdvanceMs = -1.0; // click→present latency of the last frame advance (telemetry)
 
-    // Prefetch cache: keeps decoded frames of the active sequence resident in
-    // RAM so navigation is a GPU upload, not a disk decode.
+    // Prefetch cache: keeps decoded frames of every open sequence resident in
+    // RAM (under a shared budget, LRU eviction) so navigation is a GPU upload and
+    // switching tabs doesn't discard a warm sequence.
     SequenceCache m_seqCache;
-    void EnsureSequenceCache();        // (re)configure the cache for the active tab
-    static size_t SequenceCacheBudget(); // memory ceiling for the cache, in bytes
+    std::wstring m_activeCacheId;        // id of the sequence the cache is prefetching
+    void EnsureSequenceCache();          // activate the cache for the active tab
+    static std::wstring SequenceCacheId(const SequenceInfo& seq);
+    static size_t SequenceCacheBudget(); // shared memory budget for the cache, in bytes
 
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
