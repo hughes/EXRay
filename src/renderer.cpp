@@ -467,30 +467,69 @@ void Renderer::BeginFrame(float clearR, float clearG, float clearB)
 
 void Renderer::EndFrame(bool vsync) { m_swapchain->Present(vsync ? 1 : 0, 0); }
 
+// Copy interleaved RGBA-half pixels into a mapped texture, honoring the GPU's
+// row pitch (which may be padded wider than the source rows).
+static void CopyPixelsToMapped(const ImageData& image, const D3D11_MAPPED_SUBRESOURCE& mapped)
+{
+    const size_t rowBytes = static_cast<size_t>(image.width) * 4 * sizeof(half);
+    const uint8_t* src = reinterpret_cast<const uint8_t*>(image.pixels.data());
+    uint8_t* dst = reinterpret_cast<uint8_t*>(mapped.pData);
+    if (mapped.RowPitch == rowBytes)
+    {
+        memcpy(dst, src, rowBytes * image.height);
+    }
+    else
+    {
+        for (int y = 0; y < image.height; ++y)
+            memcpy(dst + static_cast<size_t>(y) * mapped.RowPitch, src + static_cast<size_t>(y) * rowBytes, rowBytes);
+    }
+}
+
 bool Renderer::UploadImage(const ImageData& image)
 {
-    m_imageTexture.Reset();
-    m_imageSRV.Reset();
-
     if (!image.IsLoaded())
     {
+        m_imageTexture.Reset();
+        m_imageSRV.Reset();
         m_vertexBuffer.Reset();
+        m_imageTexW = m_imageTexH = 0;
         return true;
     }
 
+    // Fast path: same dimensions as the existing texture → update it in place via
+    // Map(WRITE_DISCARD), avoiding a per-frame texture + SRV + vertex-buffer
+    // allocation. This is what keeps sequence stepping/playback cheap.
+    if (m_imageTexture && image.width == m_imageTexW && image.height == m_imageTexH)
+    {
+        D3D11_MAPPED_SUBRESOURCE mapped = {};
+        if (SUCCEEDED(m_context->Map(m_imageTexture.Get(), 0, D3D11_MAP_WRITE_DISCARD, 0, &mapped)))
+        {
+            CopyPixelsToMapped(image, mapped);
+            m_context->Unmap(m_imageTexture.Get(), 0);
+            return true;
+        }
+        // Map failed — fall through and recreate.
+    }
+
+    m_imageTexture.Reset();
+    m_imageSRV.Reset();
+    m_imageTexW = m_imageTexH = 0;
+
+    // Dynamic so subsequent same-size frames take the Map fast path above.
     D3D11_TEXTURE2D_DESC texDesc = {};
     texDesc.Width = image.width;
     texDesc.Height = image.height;
     texDesc.MipLevels = 1;
     texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     texDesc.SampleDesc.Count = 1;
-    texDesc.Usage = D3D11_USAGE_IMMUTABLE;
+    texDesc.Usage = D3D11_USAGE_DYNAMIC;
     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
+    texDesc.CPUAccessFlags = D3D11_CPU_ACCESS_WRITE;
 
     D3D11_SUBRESOURCE_DATA initData = {};
     initData.pSysMem = image.pixels.data();
-    initData.SysMemPitch = image.width * 4 * sizeof(float);
+    initData.SysMemPitch = image.width * 4 * sizeof(half);
 
     HRESULT hr = m_device->CreateTexture2D(&texDesc, &initData, &m_imageTexture);
     if (FAILED(hr))
@@ -500,7 +539,10 @@ bool Renderer::UploadImage(const ImageData& image)
     if (FAILED(hr))
         return false;
 
-    // Create/update vertex buffer for this image's dimensions
+    m_imageTexW = image.width;
+    m_imageTexH = image.height;
+
+    // Create/update vertex buffer for this image's dimensions (only on size change)
     Vertex vertices[] = {
         {0.0f, 0.0f, 0.0f, 0.0f},
         {static_cast<float>(image.width), 0.0f, 1.0f, 0.0f},
@@ -552,14 +594,14 @@ bool Renderer::UploadCompareImage(const ImageData& image)
     texDesc.Height = image.height;
     texDesc.MipLevels = 1;
     texDesc.ArraySize = 1;
-    texDesc.Format = DXGI_FORMAT_R32G32B32A32_FLOAT;
+    texDesc.Format = DXGI_FORMAT_R16G16B16A16_FLOAT;
     texDesc.SampleDesc.Count = 1;
     texDesc.Usage = D3D11_USAGE_IMMUTABLE;
     texDesc.BindFlags = D3D11_BIND_SHADER_RESOURCE;
 
     D3D11_SUBRESOURCE_DATA initData = {};
     initData.pSysMem = image.pixels.data();
-    initData.SysMemPitch = image.width * 4 * sizeof(float);
+    initData.SysMemPitch = image.width * 4 * sizeof(half);
 
     HRESULT hr = m_device->CreateTexture2D(&texDesc, &initData, &m_compareTexture);
     if (FAILED(hr))

@@ -93,9 +93,11 @@ class Renderer
     ComPtr<ID3D11SamplerState> m_linearSampler;
     ComPtr<ID3D11SamplerState> m_pointSampler;
 
-    // Image texture (source A / primary)
+    // Image texture (source A / primary). Dynamic, reused across same-size frames.
     ComPtr<ID3D11Texture2D> m_imageTexture;
     ComPtr<ID3D11ShaderResourceView> m_imageSRV;
+    int m_imageTexW = 0; // dimensions of the currently allocated image texture
+    int m_imageTexH = 0;
 
     // Compare image texture (source B)
     ComPtr<ID3D11Texture2D> m_compareTexture;

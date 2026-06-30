@@ -11,6 +11,7 @@
 #include "image.h"
 #include "renderer.h"
 #include "sequence.h"
+#include "sequence_cache.h"
 #include "timing.h"
 #include "update_checker.h"
 #include "viewport.h"
@@ -33,7 +34,9 @@ class App
     void OnResize(int width, int height);
     void OpenFileDialog();
     void OpenFile(const std::wstring& path);
-    bool LoadFile(const std::wstring& path);
+    bool LoadFile(const std::wstring& path, bool isSequenceStep = false);
+    void ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSequenceStep);
+    void RecomputeHistogramIfDirty();
     bool LoadLayer(int layerIndex);
     void SwitchToTab(int index);
     void CloseCurrentTab();
@@ -65,7 +68,8 @@ class App
 
     // Histogram state (data for sidebar display)
     HistogramData m_histogram;
-    int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
+    bool m_histogramDirty = false; // recompute deferred to idle (sequence stepping)
+    int m_histogramChannel = 4;    // 0=Lum, 1=R, 2=G, 3=B, 4=All
 
     // Layer info for current file
     ExrFileInfo m_layerInfo;
@@ -140,6 +144,14 @@ class App
     void NavigateSequence(int delta); // +1 next, -1 prev
     void JumpToFrame(int frameNumber);
     void SyncSequencePanel();
+    double m_lastAdvanceMs = -1.0; // click→present latency of the last frame advance (telemetry)
+
+    // Prefetch cache: keeps decoded frames of the active sequence resident in
+    // RAM so navigation is a GPU upload, not a disk decode.
+    SequenceCache m_seqCache;
+    void EnsureSequenceCache();        // (re)configure the cache for the active tab
+    static size_t SequenceCacheBudget(); // memory ceiling for the cache, in bytes
+
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
 

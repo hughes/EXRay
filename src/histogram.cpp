@@ -22,7 +22,7 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
     float minPos = 1e30f, maxPos = 1e-30f;
     for (int i = 0; i < N; ++i)
     {
-        const float* px = &image.pixels[static_cast<size_t>(i) * 4];
+        const half* px = &image.pixels[static_cast<size_t>(i) * 4];
         float lum = 0.2126f * px[0] + 0.7152f * px[1] + 0.0722f * px[2];
         if (lum > 0.0f && std::isfinite(lum))
         {
@@ -31,10 +31,11 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
         }
         for (int c = 0; c < 3; ++c)
         {
-            if (px[c] > 0.0f && std::isfinite(px[c]))
+            float v = px[c];
+            if (v > 0.0f && std::isfinite(v))
             {
-                minPos = (std::min)(minPos, px[c]);
-                maxPos = (std::max)(maxPos, px[c]);
+                minPos = (std::min)(minPos, v);
+                maxPos = (std::max)(maxPos, v);
             }
         }
     }
@@ -62,7 +63,7 @@ HistogramData HistogramComputer::Compute(const ImageData& image)
     // Second pass: bin all pixels
     for (int i = 0; i < N; ++i)
     {
-        const float* px = &image.pixels[static_cast<size_t>(i) * 4];
+        const half* px = &image.pixels[static_cast<size_t>(i) * 4];
         float lum = 0.2126f * px[0] + 0.7152f * px[1] + 0.0722f * px[2];
 
         lumCounts[toBin(lum)]++;

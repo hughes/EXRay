@@ -48,7 +48,7 @@ static TestResult RunAutoExposureTest()
     for (int i = 0; i < 100; ++i)
     {
         float v = (i < 97) ? 0.5f : 8.0f;
-        float* px = &image.pixels[static_cast<size_t>(i) * 4];
+        half* px = &image.pixels[static_cast<size_t>(i) * 4];
         px[0] = v;
         px[1] = v;
         px[2] = v;

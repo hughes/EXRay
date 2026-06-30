@@ -9,8 +9,10 @@
 #include "display_mode.h"
 #include "resource.h"
 
+#include <ImfThreading.h>
 #include <algorithm>
 #include <shlobj.h>
+#include <thread>
 
 static const wchar_t* ExtractFilename(const std::wstring& path)
 {
@@ -20,11 +22,18 @@ static const wchar_t* ExtractFilename(const std::wstring& path)
     return fn ? fn + 1 : path.c_str();
 }
 
+static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq);
+
 bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest)
 {
     m_hInstance = hInstance;
     m_timing = &timing;
     m_smokeTest = smokeTest;
+
+    // Enable OpenEXR's parallel scanline decompression. Set once, process-wide,
+    // before any LoadEXR call. This is the single biggest lever on decode time.
+    unsigned hwThreads = std::thread::hardware_concurrency();
+    Imf::setGlobalThreadCount(static_cast<int>(hwThreads > 0 ? hwThreads : 4));
 
     // If a file path was passed on the command line, start loading immediately
     // on a background thread — before window/D3D11 init.
@@ -32,9 +41,20 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     if (cmdLine && cmdLine[0] != L'\0')
     {
         cmdLinePath = cmdLine;
+        // Trim surrounding whitespace and quotes. A stray trailing space (e.g. from
+        // a launcher) still opens via CreateFile but would corrupt the sequence
+        // suffix in DetectSequence, silently disabling sequence mode.
+        auto trim = [](std::wstring& s)
+        {
+            size_t a = s.find_first_not_of(L" \t");
+            size_t b = s.find_last_not_of(L" \t");
+            s = (a == std::wstring::npos) ? L"" : s.substr(a, b - a + 1);
+        };
+        trim(cmdLinePath);
         if (cmdLinePath.size() >= 2 && cmdLinePath.front() == L'"' && cmdLinePath.back() == L'"')
         {
             cmdLinePath = cmdLinePath.substr(1, cmdLinePath.size() - 2);
+            trim(cmdLinePath);
         }
 
         m_timing->fileReadStarted = StartupTiming::Now();
@@ -111,13 +131,14 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
         if (ix >= 0 && iy >= 0 && ix < m_image.width && iy < m_image.height)
         {
-            const float* px = m_image.PixelAt(ix, iy);
+            const half* px = m_image.PixelAt(ix, iy);
             wchar_t coordBuf[32];
             swprintf_s(coordBuf, L" (%d, %d)", ix, iy);
             m_window.SetStatusText(0, coordBuf);
 
             wchar_t rgbaBuf[128];
-            swprintf_s(rgbaBuf, L" R: %.4f  G: %.4f  B: %.4f  A: %.4f", px[0], px[1], px[2], px[3]);
+            swprintf_s(rgbaBuf, L" R: %.4f  G: %.4f  B: %.4f  A: %.4f", float(px[0]), float(px[1]), float(px[2]),
+                       float(px[3]));
             m_window.SetStatusText(1, rgbaBuf);
         }
         else
@@ -307,11 +328,12 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (ix < 0 || iy < 0 || ix >= m_image.width || iy >= m_image.height)
             return;
 
-        const float* px = m_image.PixelAt(ix, iy);
+        const half* px = m_image.PixelAt(ix, iy);
 
         HMENU popup = CreatePopupMenu();
         wchar_t label[256];
-        swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", px[0], px[1], px[2], px[3]);
+        swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", float(px[0]), float(px[1]), float(px[2]),
+                   float(px[3]));
         AppendMenuW(popup, MF_STRING, 1, label);
 
         int cmd =
@@ -321,7 +343,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (cmd == 1)
         {
             wchar_t clipText[128];
-            swprintf_s(clipText, L"R: %.4f  G: %.4f  B: %.4f  A: %.4f", px[0], px[1], px[2], px[3]);
+            swprintf_s(clipText, L"R: %.4f  G: %.4f  B: %.4f  A: %.4f", float(px[0]), float(px[1]), float(px[2]),
+                       float(px[3]));
 
             if (OpenClipboard(m_window.GetHwnd()))
             {
@@ -399,18 +422,26 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
             m_activeLayer = 0;
 
-            m_openTabs.push_back({cmdLinePath,
-                                  m_viewport.exposure,
-                                  m_viewport.zoom,
-                                  m_viewport.panX,
-                                  m_viewport.panY,
-                                  m_viewport.gamma,
-                                  {},
-                                  {},
-                                  m_layerInfo,
-                                  m_activeLayer});
+            // Detect whether the launched file belongs to a numbered sequence so
+            // command-line / double-click opens enable sequence navigation (and
+            // the prefetch cache), matching the File>Open path.
+            SequenceInfo seq = DetectSequence(cmdLinePath);
+
+            OpenTab startupTab{cmdLinePath,
+                               m_viewport.exposure,
+                               m_viewport.zoom,
+                               m_viewport.panX,
+                               m_viewport.panY,
+                               m_viewport.gamma,
+                               {},
+                               {},
+                               m_layerInfo,
+                               m_activeLayer};
+            startupTab.sequence = std::move(seq);
+            std::wstring tabTitle = FormatSequenceTabTitle(cmdLinePath, startupTab.sequence);
+            m_openTabs.push_back(std::move(startupTab));
             m_activeTab = 0;
-            m_window.AddTab(0, ExtractFilename(cmdLinePath));
+            m_window.AddTab(0, tabTitle.c_str());
             m_window.SetActiveTab(0);
 
             m_viewport.FitToWindow();
@@ -421,6 +452,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
             SyncSidebar();
             UpdateImageStatusText();
+            SyncSequencePanel();
+            EnsureSequenceCache();
             AddToRecentFiles(cmdLinePath);
         }
         else if (!m_loadError.empty())
@@ -509,6 +542,13 @@ int App::Run()
         {
             Render();
             m_needsRedraw = false;
+        }
+        else if (m_histogramDirty)
+        {
+            // Sequence stepping deferred the histogram to keep frame changes
+            // snappy. The message queue is now drained (navigation settled), so
+            // recompute and refresh the sidebar.
+            RecomputeHistogramIfDirty();
         }
         else
         {
@@ -820,58 +860,14 @@ void App::OnResize(int width, int height)
     }
 }
 
-bool App::LoadFile(const std::wstring& path)
+bool App::LoadFile(const std::wstring& path, bool isSequenceStep)
 {
     std::string errorMsg;
     ImageData newImage;
 
     if (ImageLoader::LoadEXR(path, newImage, errorMsg))
     {
-        m_image = std::move(newImage);
-        m_renderer.UploadImage(m_image);
-        m_histogram = HistogramComputer::Compute(m_image);
-
-        // Scan layers (metadata only)
-        std::string layerError;
-        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
-        m_activeLayer = 0;
-
-        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
-        m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
-        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
-
-        // In compare mode or sequence navigation, keep viewport locked.
-        // For sequences, preserve exposure/zoom/pan across frames.
-        if (m_compareMode == CompareMode::Off && !IsSequenceTab())
-        {
-            m_viewport.imageWidth = static_cast<float>(m_image.width);
-            m_viewport.imageHeight = static_cast<float>(m_image.height);
-            m_viewport.exposure = m_histogram.autoExposure;
-            m_viewport.FitToWindow();
-        }
-        else if (m_compareMode == CompareMode::Off && IsSequenceTab())
-        {
-            // Sequence: update dimensions, keep exposure/zoom, adjust pan to keep center fixed
-            float newW = static_cast<float>(m_image.width);
-            float newH = static_cast<float>(m_image.height);
-            if (newW != m_viewport.imageWidth || newH != m_viewport.imageHeight)
-            {
-                float cx = m_viewport.panX + m_viewport.imageWidth * m_viewport.zoom * 0.5f;
-                float cy = m_viewport.panY + m_viewport.imageHeight * m_viewport.zoom * 0.5f;
-                m_viewport.imageWidth = newW;
-                m_viewport.imageHeight = newH;
-                m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
-                m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
-            }
-        }
-
-        wchar_t title[MAX_PATH + 16];
-        swprintf_s(title, L"EXRay - %s", path.c_str());
-        m_window.SetTitle(title);
-
-        SyncSidebar();
-        UpdateImageStatusText();
-        m_needsRedraw = true;
+        ApplyLoadedImage(std::move(newImage), path, isSequenceStep);
         return true;
     }
     else
@@ -885,6 +881,69 @@ bool App::LoadFile(const std::wstring& path)
         }
         return false;
     }
+}
+
+// Install an already-decoded image as the current frame: GPU upload, histogram /
+// layer handling, viewport adjustment and UI refresh. Shared by the synchronous
+// decode path (LoadFile) and the prefetch-cache hit path (NavigateSequence).
+void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSequenceStep)
+{
+    m_image = std::move(img);
+    m_renderer.UploadImage(m_image);
+
+    // During sequence stepping, exposure/zoom are locked and the layer
+    // structure is identical across frames, so skip the histogram recompute
+    // (deferred to idle) and the redundant per-frame layer rescan.
+    if (isSequenceStep)
+    {
+        m_histogramDirty = true;
+    }
+    else
+    {
+        m_histogram = HistogramComputer::Compute(m_image);
+
+        // Scan layers (metadata only)
+        std::string layerError;
+        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
+    }
+    m_activeLayer = 0;
+
+    // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+    m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+
+    // In compare mode or sequence navigation, keep viewport locked.
+    // For sequences, preserve exposure/zoom/pan across frames.
+    if (m_compareMode == CompareMode::Off && !IsSequenceTab())
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = m_histogram.autoExposure;
+        m_viewport.FitToWindow();
+    }
+    else if (m_compareMode == CompareMode::Off && IsSequenceTab())
+    {
+        // Sequence: update dimensions, keep exposure/zoom, adjust pan to keep center fixed
+        float newW = static_cast<float>(m_image.width);
+        float newH = static_cast<float>(m_image.height);
+        if (newW != m_viewport.imageWidth || newH != m_viewport.imageHeight)
+        {
+            float cx = m_viewport.panX + m_viewport.imageWidth * m_viewport.zoom * 0.5f;
+            float cy = m_viewport.panY + m_viewport.imageHeight * m_viewport.zoom * 0.5f;
+            m_viewport.imageWidth = newW;
+            m_viewport.imageHeight = newH;
+            m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+            m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+        }
+    }
+
+    wchar_t title[MAX_PATH + 16];
+    swprintf_s(title, L"EXRay - %s", path.c_str());
+    m_window.SetTitle(title);
+
+    SyncSidebar();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
 }
 
 bool App::LoadLayer(int layerIndex)
@@ -1030,6 +1089,7 @@ void App::OpenFile(const std::wstring& path)
     }
 
     SyncSequencePanel();
+    EnsureSequenceCache(); // start prefetching if this is a sequence
 }
 
 void App::SwitchToTab(int index)
@@ -1084,6 +1144,7 @@ void App::SwitchToTab(int index)
     SyncComparePanel();
     SyncSequencePanel();
     UpdateImageStatusText();
+    EnsureSequenceCache(); // prefetch the new tab's sequence (or release the cache)
     m_needsRedraw = true;
 }
 
@@ -1118,6 +1179,7 @@ void App::CloseCurrentTab()
         m_window.SetStatusText(1, L"");
         m_window.SetStatusText(2, L"");
         SyncSidebar();
+        EnsureSequenceCache(); // no active tab → release the prefetch cache
         m_needsRedraw = true;
     }
     else
@@ -1169,6 +1231,12 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].activeLayer = m_activeLayer;
         if (m_image.IsLoaded())
         {
+            // Flush any histogram deferred by sequence stepping before stowing the tab.
+            if (m_histogramDirty)
+            {
+                m_histogram = HistogramComputer::Compute(m_image);
+                m_histogramDirty = false;
+            }
             m_openTabs[m_activeTab].image = std::move(m_image);
             m_openTabs[m_activeTab].histogram = std::move(m_histogram);
         }
@@ -1374,6 +1442,42 @@ void App::UploadCompareTextures()
     m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
 }
 
+size_t App::SequenceCacheBudget()
+{
+    // Cap the prefetch cache at a fraction of physical RAM, with a hard ceiling.
+    // A 1080p half-float frame is ~16 MB, so 6 GB holds ~370 frames.
+    constexpr size_t kHardCeiling = size_t(6) * 1024 * 1024 * 1024;
+    MEMORYSTATUSEX mem = {};
+    mem.dwLength = sizeof(mem);
+    if (GlobalMemoryStatusEx(&mem))
+    {
+        size_t half = static_cast<size_t>(mem.ullTotalPhys / 2);
+        return (std::min)(half, kHardCeiling);
+    }
+    return size_t(2) * 1024 * 1024 * 1024;
+}
+
+void App::EnsureSequenceCache()
+{
+    if (!IsSequenceTab())
+    {
+        m_seqCache.Clear();
+        return;
+    }
+
+    const SequenceInfo& seq = m_openTabs[m_activeTab].sequence;
+    std::wstring id = seq.prefix + L"\x1f" + seq.suffix;
+    if (m_seqCache.Id() == id)
+        return; // already warm for this sequence
+
+    std::vector<std::wstring> paths;
+    paths.reserve(seq.frames.size());
+    for (const SequenceFrame& f : seq.frames)
+        paths.push_back(f.path);
+    m_seqCache.Configure(id, std::move(paths), SequenceCacheBudget());
+    m_seqCache.SetFocus(seq.currentIndex);
+}
+
 void App::NavigateSequence(int delta)
 {
     if (!IsSequenceTab())
@@ -1386,13 +1490,37 @@ void App::NavigateSequence(int delta)
         return;
 
     seq.currentIndex = newIndex;
-    const std::wstring& framePath = seq.CurrentPath();
+    const std::wstring framePath = seq.CurrentPath();
 
     // Update the tab's path to the new frame
     m_openTabs[m_activeTab].path = framePath;
 
-    // Load the new frame
-    if (LoadFile(framePath))
+    const int64_t tStart = StartupTiming::Now();
+
+    // Drive the prefetch worker toward the new position and try the cache first.
+    EnsureSequenceCache();
+    m_seqCache.SetFocus(newIndex);
+
+    // Load the new frame (sequence step: locked viewport, deferred histogram, no layer rescan).
+    // Cache hit → just a GPU upload; miss → synchronous decode, then seed the cache.
+    bool loaded;
+    bool cacheHit = false;
+    ImageData cached;
+    if (m_seqCache.TryGet(newIndex, cached))
+    {
+        ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
+        loaded = true;
+        cacheHit = true;
+    }
+    else
+    {
+        loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+        if (loaded)
+            m_seqCache.Put(newIndex, m_image);
+    }
+    const int64_t tApplied = StartupTiming::Now();
+
+    if (loaded)
     {
         // Update tab title in place (no remove/add to avoid layout flicker)
         std::wstring title = FormatSequenceTabTitle(framePath, seq);
@@ -1410,9 +1538,39 @@ void App::NavigateSequence(int delta)
             UploadCompareTextures();
             SyncComparePanel();
         }
+
+        // Render immediately (within this input handler) so the frame appears now,
+        // rather than after a message-loop round trip. Then record click→present
+        // latency telemetry.
+        Render();
+        m_needsRedraw = false;
+
+        const int64_t tEnd = StartupTiming::Now();
+        m_lastAdvanceMs = m_timing->MsBetween(tStart, tEnd);
+
+        wchar_t dbg[160];
+        swprintf_s(dbg, L"[EXRay] advance %.1f ms (%s: load+upload %.1f, draw %.1f)\n", m_lastAdvanceMs,
+                   cacheHit ? L"cache hit" : L"cache MISS", m_timing->MsBetween(tStart, tApplied),
+                   m_timing->MsBetween(tApplied, tEnd));
+        OutputDebugStringW(dbg);
+
+        UpdateImageStatusText(); // refresh status bar to show the new latency
     }
 
     SyncSequencePanel();
+}
+
+void App::RecomputeHistogramIfDirty()
+{
+    if (!m_histogramDirty)
+        return;
+    m_histogramDirty = false;
+    if (m_image.IsLoaded())
+    {
+        m_histogram = HistogramComputer::Compute(m_image);
+        SyncSidebar();
+        m_needsRedraw = true;
+    }
 }
 
 void App::JumpToFrame(int frameNumber)
@@ -1512,6 +1670,14 @@ void App::UpdateImageStatusText()
         MultiByteToWideChar(CP_UTF8, 0, m_image.colorSpace.c_str(), -1, csName, 64);
         wcscat_s(infoBuf, L" | ");
         wcscat_s(infoBuf, csName);
+    }
+
+    // Frame-advance latency telemetry (sequences only)
+    if (IsSequenceTab() && m_lastAdvanceMs >= 0.0)
+    {
+        wchar_t advBuf[32];
+        swprintf_s(advBuf, L" | adv %.1f ms", m_lastAdvanceMs);
+        wcscat_s(infoBuf, advBuf);
     }
 
     m_window.SetStatusText(2, infoBuf);
