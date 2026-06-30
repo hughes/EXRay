@@ -26,6 +26,7 @@ static const wchar_t* ExtractFilename(const std::wstring& path)
 }
 
 static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq);
+static std::wstring SequenceKeyForPath(const std::wstring& path);
 
 bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest)
 {
@@ -1020,16 +1021,18 @@ void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSeq
     m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
     m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
-    // In compare mode or sequence navigation, keep viewport locked.
-    // For sequences, preserve exposure/zoom/pan across frames.
-    if (m_compareMode == CompareMode::Off && !IsSequenceTab())
+    // A full load (new image, or a sequence's first frame) fits + auto-exposes;
+    // a sequence frame step preserves exposure/zoom/pan. Gate on isSequenceStep,
+    // not IsSequenceTab() — during OpenFile the new tab isn't active yet, so
+    // IsSequenceTab() would wrongly reflect the previous tab.
+    if (m_compareMode == CompareMode::Off && !isSequenceStep)
     {
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
         m_viewport.exposure = m_histogram.autoExposure;
         m_viewport.FitToWindow();
     }
-    else if (m_compareMode == CompareMode::Off && IsSequenceTab())
+    else if (m_compareMode == CompareMode::Off && isSequenceStep)
     {
         // Sequence: update dimensions, keep exposure/zoom, adjust pan to keep center fixed
         float newW = static_cast<float>(m_image.width);
@@ -1996,6 +1999,24 @@ void App::LoadRecentFiles()
     }
     fclose(f);
 
+    // Collapse multiple frames of the same sequence into one entry (keep the
+    // first/most-recent), in case the file predates per-sequence dedup.
+    std::vector<std::wstring> deduped;
+    for (const std::wstring& e : m_recentFiles)
+    {
+        std::wstring key = SequenceKeyForPath(e);
+        bool seen = false;
+        for (const std::wstring& d : deduped)
+            if (_wcsicmp(SequenceKeyForPath(d).c_str(), key.c_str()) == 0)
+            {
+                seen = true;
+                break;
+            }
+        if (!seen)
+            deduped.push_back(e);
+    }
+    m_recentFiles = std::move(deduped);
+
     m_window.UpdateRecentMenu(m_recentFiles);
 }
 
@@ -2077,13 +2098,37 @@ void App::SavePreferences()
     fclose(f);
 }
 
+// Sequence identity of a path: the directory + filename with the trailing frame
+// number removed (e.g. "…/render.0042.exr" → "…/render.\x1f.exr"). Frames of the
+// same sequence share a key; a file with no trailing number is its own key. Used
+// to keep one Recent entry per sequence instead of one per opened frame.
+static std::wstring SequenceKeyForPath(const std::wstring& path)
+{
+    size_t sep = path.find_last_of(L"\\/");
+    std::wstring dir = (sep == std::wstring::npos) ? std::wstring() : path.substr(0, sep + 1);
+    std::wstring filename = (sep == std::wstring::npos) ? path : path.substr(sep + 1);
+
+    size_t dotPos = filename.find_last_of(L'.');
+    if (dotPos == std::wstring::npos)
+        dotPos = filename.size();
+    size_t end = dotPos;
+    while (end > 0 && filename[end - 1] >= L'0' && filename[end - 1] <= L'9')
+        end--;
+    if (end == dotPos)
+        return path; // no trailing digit group — not a sequence frame
+
+    return dir + filename.substr(0, end) + L"\x1f" + filename.substr(dotPos);
+}
+
 void App::AddToRecentFiles(std::wstring path)
 {
-    // Remove if already present (case-insensitive, since Windows paths are case-insensitive)
-    // Note: path is taken by value because callers may pass m_recentFiles[i],
-    // and remove_if would corrupt a reference into the vector being modified.
-    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(), [&path](const std::wstring& entry)
-                                       { return _wcsicmp(entry.c_str(), path.c_str()) == 0; }),
+    // Remove any existing entry for the same file OR the same sequence (so a
+    // sequence appears once, not once per opened frame). path is by value because
+    // callers may pass m_recentFiles[i], which remove_if would otherwise invalidate.
+    std::wstring key = SequenceKeyForPath(path);
+    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(),
+                                       [&key](const std::wstring& entry)
+                                       { return _wcsicmp(SequenceKeyForPath(entry).c_str(), key.c_str()) == 0; }),
                         m_recentFiles.end());
 
     m_recentFiles.insert(m_recentFiles.begin(), path);
