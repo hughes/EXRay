@@ -4,6 +4,7 @@
 
 #include <cstdint>
 #include <cstring>
+#include <half.h>
 #include <string>
 #include <vector>
 
@@ -12,7 +13,7 @@ struct ImageData
     int width = 0;
     int height = 0;
     bool alphaAllZero = false; // true if every alpha sample was exactly 0
-    std::vector<float> pixels; // RGBA interleaved, width*height*4 floats
+    std::vector<half> pixels;  // RGBA interleaved, width*height*4 halfs (matches EXR's native type)
 
     // 3x3 row-major color matrix: source primaries → Rec. 709
     // Identity by default (no conversion needed for Rec. 709 sources)
@@ -50,7 +51,7 @@ struct ImageData
         return *this;
     }
 
-    const float* PixelAt(int x, int y) const { return &pixels[static_cast<size_t>((y * width + x) * 4)]; }
+    const half* PixelAt(int x, int y) const { return &pixels[static_cast<size_t>((y * width + x) * 4)]; }
 
     bool IsLoaded() const { return width > 0 && height > 0; }
 };
@@ -91,6 +92,10 @@ struct ChannelMapping
 // Rules: RGB/rgba names first, then XYZ only as a complete triplet,
 // then fall back to grayscale for single-channel layers.
 ChannelMapping MapChannelsToRGBA(const std::vector<std::string>& channels);
+
+// Format a layer label for display (used in sidebar layer list and compare source labels).
+// Returns e.g. "(default)  Y", "right  Y", "Mip 2  128x128"
+std::wstring FormatLayerLabel(const ExrLayer& layer);
 
 class ImageLoader
 {

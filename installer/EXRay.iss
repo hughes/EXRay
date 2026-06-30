@@ -10,7 +10,7 @@
 ; Copying from the -opt path guarantees we never package a debug build.
 
 #define MyAppName "EXRay"
-#define MyAppVersion "0.3.2"
+#define MyAppVersion "0.4.0"
 #define MyAppPublisher "Matt Hughes"
 #define MyAppURL "https://github.com/hughes/EXRay"
 #define MyAppExeName "EXRay.exe"

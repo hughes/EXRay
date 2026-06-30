@@ -10,6 +10,8 @@
 #include "histogram.h"
 #include "image.h"
 #include "renderer.h"
+#include "sequence.h"
+#include "sequence_cache.h"
 #include "timing.h"
 #include "update_checker.h"
 #include "viewport.h"
@@ -27,12 +29,18 @@ class App
     bool Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest = false);
     int Run();
 
+    // Headless playback benchmark: auto-play the opened sequence at `fps`, log
+    // per-frame timing to `outPath`, then exit after `frames` advances.
+    void SetPlayBenchmark(const std::wstring& outPath, int frames, int fps);
+
   private:
     void OnCommand(int commandId);
     void OnResize(int width, int height);
     void OpenFileDialog();
     void OpenFile(const std::wstring& path);
-    bool LoadFile(const std::wstring& path);
+    bool LoadFile(const std::wstring& path, bool isSequenceStep = false);
+    void ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSequenceStep);
+    void RecomputeHistogramIfDirty();
     bool LoadLayer(int layerIndex);
     void SwitchToTab(int index);
     void CloseCurrentTab();
@@ -64,17 +72,61 @@ class App
 
     // Histogram state (data for sidebar display)
     HistogramData m_histogram;
-    int m_histogramChannel = 4; // 0=Lum, 1=R, 2=G, 3=B, 4=All
+    bool m_histogramDirty = false; // recompute deferred to idle (sequence stepping)
+    int64_t m_lastNavTick = 0;     // timestamp of last sequence navigation (defers histogram during playback)
+    int m_histogramChannel = 4;    // 0=Lum, 1=R, 2=G, 3=B, 4=All
 
     // Layer info for current file
     ExrFileInfo m_layerInfo;
     int m_activeLayer = 0;
+    std::vector<float> m_layerExposure; // per-layer EV for the active tab (NaN = unset)
+    void ResetLayerExposures();         // size to current layers; default layer = current EV
 
     // Grid state
     bool m_showGrid = true;
 
     // Display mode: 0=RGB, 1=R, 2=G, 3=B, 4=A, 5=RGB(ignore alpha)
     int m_displayMode = kDisplayModeRGB;
+
+    // Compare mode
+    enum class CompareMode
+    {
+        Off = 0,
+        Split = 1,
+        Difference = 2,
+        Add = 3,
+        Over = 4,
+    };
+
+    // A compare source snapshots the image at Set time
+    struct CompareSource
+    {
+        int tabIndex = -1;
+        int layerIndex = 0;
+        ImageData image;    // snapshotted pixel data (copied at Set time)
+        std::wstring label; // human-readable label, e.g. "Blobbies.exr (diffuse)"
+    };
+
+    CompareMode m_compareMode = CompareMode::Off;
+    CompareSource m_compareBase;
+    CompareSource m_compareBlend;
+    int m_compareFocused = 0;   // 0=base/left, 1=blend/right
+    float m_splitX = 0.5f;      // normalized [0,1] split position
+    float m_compareGain = 1.0f; // gain for difference mode
+
+    // Saved viewport state — restored when exiting compare
+    float m_savedImageWidth = 0;
+    float m_savedImageHeight = 0;
+
+    void SetCompareMode(CompareMode mode);
+    void ExitCompare();
+    void SwapCompareSources();
+    void SetCompareFocus(int source); // 0=base, 1=blend
+    void SnapshotFocusedSource();
+    void UploadCompareTextures();
+    void SyncComparePanel();
+    void AdjustCompareAfterRemove(int removedIndex);
+    std::wstring MakeSourceLabel() const;
 
     // Open file tabs
     struct OpenTab
@@ -89,7 +141,26 @@ class App
         HistogramData histogram;
         ExrFileInfo layerInfo;
         int activeLayer = 0;
+        SequenceInfo sequence;            // empty if not a sequence
+        int playbackFps = 24;             // per-tab playback rate
+        int loopMode = 0;                 // per-tab end behavior: 0=Loop,1=Once,2=Ping
+        std::vector<float> layerExposure; // per-layer EV (NaN = not yet auto-computed)
     };
+
+    bool IsSequenceTab() const { return m_activeTab >= 0 && !m_openTabs[m_activeTab].sequence.frames.empty(); }
+    void NavigateSequence(int delta); // +1 next, -1 prev
+    void JumpToFrame(int frameNumber);
+    void SyncSequencePanel();
+
+    // Prefetch cache: keeps decoded frames of every open sequence resident in
+    // RAM (under a shared budget, LRU eviction) so navigation is a GPU upload and
+    // switching tabs doesn't discard a warm sequence.
+    SequenceCache m_seqCache;
+    std::wstring m_activeCacheId; // id of the sequence the cache is prefetching
+    void EnsureSequenceCache();   // activate the cache for the active tab
+    static std::wstring SequenceCacheId(const SequenceInfo& seq);
+    static size_t SequenceCacheBudget(); // shared memory budget for the cache, in bytes
+
     std::vector<OpenTab> m_openTabs;
     int m_activeTab = -1;
 
@@ -112,4 +183,16 @@ class App
 
     // Smoke test mode — force WARP, suppress dialogs, exit after first frame
     bool m_smokeTest = false;
+
+    // Headless playback benchmark state
+    bool m_playBench = false;
+    std::wstring m_playBenchOut;
+    int m_playBenchTarget = 0;
+    int m_playBenchFps = 24;
+    std::vector<double> m_playBenchMs; // per-advance click->present latency
+    std::vector<bool> m_playBenchHit;  // per-advance cache hit/miss
+    int64_t m_playBenchFirstTick = 0;  // wall-clock anchor for fps
+    int64_t m_playBenchLastTick = 0;
+    void RecordPlayBenchSample(double ms, bool cacheHit, int64_t tEnd);
+    void WritePlayBenchReport();
 };

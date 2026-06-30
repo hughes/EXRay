@@ -241,7 +241,7 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
             return false;
         }
 
-        size_t pixelBytes = static_cast<size_t>(width) * height * 4 * sizeof(float);
+        size_t pixelBytes = static_cast<size_t>(width) * height * 4 * sizeof(half);
         if (pixelBytes > kMaxPixelBytes)
         {
             char buf[128];
@@ -251,28 +251,19 @@ bool ImageLoader::LoadEXR(const std::wstring& filePath, ImageData& outImage, std
             return false;
         }
 
-        Imf::Array2D<Imf::Rgba> halfPixels(height, width);
-        file.setFrameBuffer(&halfPixels[0][0] - dw.min.x - dw.min.y * width, 1, width);
-        file.readPixels(dw.min.y, dw.max.y);
-
         outImage.width = width;
         outImage.height = height;
         outImage.pixels.resize(static_cast<size_t>(width) * height * 4);
 
+        // Imf::Rgba is exactly four contiguous halfs (r,g,b,a), so we can read the
+        // half data straight into our interleaved buffer with no conversion pass.
+        Imf::Rgba* rgba = reinterpret_cast<Imf::Rgba*>(outImage.pixels.data());
+        file.setFrameBuffer(rgba - dw.min.x - dw.min.y * width, 1, width);
+        file.readPixels(dw.min.y, dw.max.y);
+
         bool allZeroAlpha = true;
-        for (int y = 0; y < height; ++y)
-        {
-            for (int x = 0; x < width; ++x)
-            {
-                const Imf::Rgba& src = halfPixels[y][x];
-                float* dst = &outImage.pixels[static_cast<size_t>((y * width + x) * 4)];
-                dst[0] = static_cast<float>(src.r);
-                dst[1] = static_cast<float>(src.g);
-                dst[2] = static_cast<float>(src.b);
-                dst[3] = static_cast<float>(src.a);
-                allZeroAlpha = allZeroAlpha && (dst[3] == 0.0f);
-            }
-        }
+        for (size_t i = 3; i < outImage.pixels.size(); i += 4)
+            allZeroAlpha = allZeroAlpha && (outImage.pixels[i] == 0.0f);
         outImage.alphaAllZero = allZeroAlpha;
 
         ComputeColorMatrix(file.header(), outImage.colorMatrix, outImage.colorSpace);
@@ -521,7 +512,7 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             return false;
         }
 
-        size_t pixelBytes = static_cast<size_t>(width) * height * 4 * sizeof(float);
+        size_t pixelBytes = static_cast<size_t>(width) * height * 4 * sizeof(half);
         if (pixelBytes > kMaxPixelBytes)
         {
             errorMsg = "Image too large.";
@@ -551,7 +542,7 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
             outImage.pixels[i + 3] = 1.0f;
         }
 
-        size_t xStride = 4 * sizeof(float);
+        size_t xStride = 4 * sizeof(half);
         size_t yStride = static_cast<size_t>(width) * xStride;
         char* base = reinterpret_cast<char*>(outImage.pixels.data()) - dw.min.x * xStride -
                      static_cast<size_t>(dw.min.y) * yStride;
@@ -561,18 +552,18 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
         if (grayscale)
         {
             std::string fullName = prefix + soloChannel;
-            fb.insert(fullName.c_str(), Imf::Slice(Imf::FLOAT, base + 0, xStride, yStride));
+            fb.insert(fullName.c_str(), Imf::Slice(Imf::HALF, base + 0, xStride, yStride));
         }
         else
         {
             if (!rName.empty())
-                fb.insert((prefix + rName).c_str(), Imf::Slice(Imf::FLOAT, base + 0 * sizeof(float), xStride, yStride));
+                fb.insert((prefix + rName).c_str(), Imf::Slice(Imf::HALF, base + 0 * sizeof(half), xStride, yStride));
             if (!gName.empty())
-                fb.insert((prefix + gName).c_str(), Imf::Slice(Imf::FLOAT, base + 1 * sizeof(float), xStride, yStride));
+                fb.insert((prefix + gName).c_str(), Imf::Slice(Imf::HALF, base + 1 * sizeof(half), xStride, yStride));
             if (!bName.empty())
-                fb.insert((prefix + bName).c_str(), Imf::Slice(Imf::FLOAT, base + 2 * sizeof(float), xStride, yStride));
+                fb.insert((prefix + bName).c_str(), Imf::Slice(Imf::HALF, base + 2 * sizeof(half), xStride, yStride));
             if (!aName.empty())
-                fb.insert((prefix + aName).c_str(), Imf::Slice(Imf::FLOAT, base + 3 * sizeof(float), xStride, yStride));
+                fb.insert((prefix + aName).c_str(), Imf::Slice(Imf::HALF, base + 3 * sizeof(half), xStride, yStride));
         }
 
         if (layer.isTiled)
@@ -621,4 +612,51 @@ bool ImageLoader::LoadEXRLayer(const std::wstring& filePath, const ExrLayer& lay
         errorMsg = "Unknown error while reading layer.";
         return false;
     }
+}
+
+static std::wstring Utf8ToWide(const std::string& s)
+{
+    if (s.empty())
+        return {};
+    int len = MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, nullptr, 0);
+    std::wstring w(len - 1, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, s.c_str(), -1, w.data(), len);
+    return w;
+}
+
+std::wstring FormatLayerLabel(const ExrLayer& layer)
+{
+    // Mip child levels
+    if (layer.numMipLevels > 1 && layer.mipLevel > 0)
+    {
+        wchar_t buf[64];
+        swprintf_s(buf, L"Mip %d  %d\u00D7%d", layer.mipLevel, layer.mipWidth, layer.mipHeight);
+        return buf;
+    }
+
+    // Top-level layer
+    std::wstring label;
+    if (layer.name.empty())
+        label = L"(default)";
+    else
+        label = Utf8ToWide(layer.name);
+
+    // Append channel list
+    label += L"  ";
+    for (size_t i = 0; i < layer.channels.size(); i++)
+    {
+        if (i > 0)
+            label += L",";
+        label += Utf8ToWide(layer.channels[i]);
+    }
+
+    // Show dimensions for mip level 0 if mipmaps exist
+    if (layer.numMipLevels > 1)
+    {
+        wchar_t buf[32];
+        swprintf_s(buf, L"  %d\u00D7%d", layer.mipWidth, layer.mipHeight);
+        label += buf;
+    }
+
+    return label;
 }

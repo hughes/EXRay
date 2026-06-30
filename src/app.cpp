@@ -9,8 +9,13 @@
 #include "display_mode.h"
 #include "resource.h"
 
+#include <ImfThreading.h>
 #include <algorithm>
+#include <cmath>
+#include <cstdlib>
+#include <limits>
 #include <shlobj.h>
+#include <thread>
 
 static const wchar_t* ExtractFilename(const std::wstring& path)
 {
@@ -20,11 +25,19 @@ static const wchar_t* ExtractFilename(const std::wstring& path)
     return fn ? fn + 1 : path.c_str();
 }
 
+static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq);
+static std::wstring SequenceKeyForPath(const std::wstring& path);
+
 bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupTiming& timing, bool smokeTest)
 {
     m_hInstance = hInstance;
     m_timing = &timing;
     m_smokeTest = smokeTest;
+
+    // Enable OpenEXR's parallel scanline decompression. Set once, process-wide,
+    // before any LoadEXR call. This is the single biggest lever on decode time.
+    unsigned hwThreads = std::thread::hardware_concurrency();
+    Imf::setGlobalThreadCount(static_cast<int>(hwThreads > 0 ? hwThreads : 4));
 
     // If a file path was passed on the command line, start loading immediately
     // on a background thread — before window/D3D11 init.
@@ -32,9 +45,20 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
     if (cmdLine && cmdLine[0] != L'\0')
     {
         cmdLinePath = cmdLine;
+        // Trim surrounding whitespace and quotes. A stray trailing space (e.g. from
+        // a launcher) still opens via CreateFile but would corrupt the sequence
+        // suffix in DetectSequence, silently disabling sequence mode.
+        auto trim = [](std::wstring& s)
+        {
+            size_t a = s.find_first_not_of(L" \t");
+            size_t b = s.find_last_not_of(L" \t");
+            s = (a == std::wstring::npos) ? L"" : s.substr(a, b - a + 1);
+        };
+        trim(cmdLinePath);
         if (cmdLinePath.size() >= 2 && cmdLinePath.front() == L'"' && cmdLinePath.back() == L'"')
         {
             cmdLinePath = cmdLinePath.substr(1, cmdLinePath.size() - 2);
+            trim(cmdLinePath);
         }
 
         m_timing->fileReadStarted = StartupTiming::Now();
@@ -111,13 +135,14 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
         if (ix >= 0 && iy >= 0 && ix < m_image.width && iy < m_image.height)
         {
-            const float* px = m_image.PixelAt(ix, iy);
+            const half* px = m_image.PixelAt(ix, iy);
             wchar_t coordBuf[32];
             swprintf_s(coordBuf, L" (%d, %d)", ix, iy);
             m_window.SetStatusText(0, coordBuf);
 
             wchar_t rgbaBuf[128];
-            swprintf_s(rgbaBuf, L" R: %.4f  G: %.4f  B: %.4f  A: %.4f", px[0], px[1], px[2], px[3]);
+            swprintf_s(rgbaBuf, L" R: %.4f  G: %.4f  B: %.4f  A: %.4f", float(px[0]), float(px[1]), float(px[2]),
+                       float(px[3]));
             m_window.SetStatusText(1, rgbaBuf);
         }
         else
@@ -162,6 +187,27 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
             m_needsRedraw = true;
         }
+        else if (vk == VK_LEFT && IsSequenceTab())
+        {
+            NavigateSequence(-1);
+        }
+        else if (vk == VK_RIGHT && IsSequenceTab())
+        {
+            NavigateSequence(1);
+        }
+        else if (vk == VK_HOME && IsSequenceTab())
+        {
+            NavigateSequence(-m_openTabs[m_activeTab].sequence.currentIndex);
+        }
+        else if (vk == VK_END && IsSequenceTab())
+        {
+            auto& seq = m_openTabs[m_activeTab].sequence;
+            NavigateSequence(seq.FrameCount() - 1 - seq.currentIndex);
+        }
+        else if (vk == VK_SPACE && IsSequenceTab())
+        {
+            m_window.GetSidebar().TogglePlayback();
+        }
         else if (vk == 'G')
         {
             m_showGrid = !m_showGrid;
@@ -175,7 +221,9 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         }
         else if (vk == VK_ESCAPE)
         {
-            if (m_window.IsFullscreen())
+            if (m_compareMode != CompareMode::Off)
+                ExitCompare();
+            else if (m_window.IsFullscreen())
                 m_window.ToggleFullscreen();
             else
                 DestroyWindow(m_window.GetHwnd());
@@ -240,6 +288,40 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         m_needsRedraw = true;
     };
     sidebar.onLayerSelect = [this](int layerIndex) { LoadLayer(layerIndex); };
+    sidebar.onSequenceNav = [this](int delta) { NavigateSequence(delta); };
+    sidebar.onSequenceFirst = [this]()
+    {
+        if (IsSequenceTab())
+            NavigateSequence(-m_openTabs[m_activeTab].sequence.currentIndex);
+    };
+    sidebar.onSequenceLast = [this]()
+    {
+        if (IsSequenceTab())
+        {
+            auto& seq = m_openTabs[m_activeTab].sequence;
+            NavigateSequence(seq.FrameCount() - 1 - seq.currentIndex);
+        }
+    };
+    sidebar.onSequenceJump = [this](int frameNumber) { JumpToFrame(frameNumber); };
+    sidebar.onQueryCacheStates = [this](std::vector<uint8_t>& out) { m_seqCache.SnapshotStates(out); };
+    sidebar.onLoopModeChanged = [this](int mode)
+    {
+        // Ping-pong (mode 2) plays backward too, so keep a reverse buffer;
+        // Loop/Once only go forward, so prefetch pure forward-wrap.
+        m_seqCache.SetReverseLookback(mode == 2 ? 8 : 0);
+    };
+    sidebar.onCompareMode = [this](int mode) { SetCompareMode(static_cast<CompareMode>(mode)); };
+    sidebar.onCompareSwap = [this]() { SwapCompareSources(); };
+    sidebar.onCompareFocusA = [this]()
+    {
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(0);
+    };
+    sidebar.onCompareFocusB = [this]()
+    {
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(1);
+    };
 
     m_window.onContextMenu = [this](int screenX, int screenY)
     {
@@ -258,11 +340,12 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (ix < 0 || iy < 0 || ix >= m_image.width || iy >= m_image.height)
             return;
 
-        const float* px = m_image.PixelAt(ix, iy);
+        const half* px = m_image.PixelAt(ix, iy);
 
         HMENU popup = CreatePopupMenu();
         wchar_t label[256];
-        swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", px[0], px[1], px[2], px[3]);
+        swprintf_s(label, L"Copy Pixel Value  (%.4f, %.4f, %.4f, %.4f)", float(px[0]), float(px[1]), float(px[2]),
+                   float(px[3]));
         AppendMenuW(popup, MF_STRING, 1, label);
 
         int cmd =
@@ -272,7 +355,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
         if (cmd == 1)
         {
             wchar_t clipText[128];
-            swprintf_s(clipText, L"R: %.4f  G: %.4f  B: %.4f  A: %.4f", px[0], px[1], px[2], px[3]);
+            swprintf_s(clipText, L"R: %.4f  G: %.4f  B: %.4f  A: %.4f", float(px[0]), float(px[1]), float(px[2]),
+                       float(px[3]));
 
             if (OpenClipboard(m_window.GetHwnd()))
             {
@@ -349,19 +433,28 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
             std::string layerError;
             ImageLoader::ScanLayers(cmdLinePath, m_layerInfo, layerError);
             m_activeLayer = 0;
+            ResetLayerExposures();
 
-            m_openTabs.push_back({cmdLinePath,
-                                  m_viewport.exposure,
-                                  m_viewport.zoom,
-                                  m_viewport.panX,
-                                  m_viewport.panY,
-                                  m_viewport.gamma,
-                                  {},
-                                  {},
-                                  m_layerInfo,
-                                  m_activeLayer});
+            // Detect whether the launched file belongs to a numbered sequence so
+            // command-line / double-click opens enable sequence navigation (and
+            // the prefetch cache), matching the File>Open path.
+            SequenceInfo seq = DetectSequence(cmdLinePath);
+
+            OpenTab startupTab{cmdLinePath,
+                               m_viewport.exposure,
+                               m_viewport.zoom,
+                               m_viewport.panX,
+                               m_viewport.panY,
+                               m_viewport.gamma,
+                               {},
+                               {},
+                               m_layerInfo,
+                               m_activeLayer};
+            startupTab.sequence = std::move(seq);
+            std::wstring tabTitle = FormatSequenceTabTitle(cmdLinePath, startupTab.sequence);
+            m_openTabs.push_back(std::move(startupTab));
             m_activeTab = 0;
-            m_window.AddTab(0, ExtractFilename(cmdLinePath));
+            m_window.AddTab(0, tabTitle.c_str());
             m_window.SetActiveTab(0);
 
             m_viewport.FitToWindow();
@@ -372,6 +465,8 @@ bool App::Initialize(HINSTANCE hInstance, int nCmdShow, LPWSTR cmdLine, StartupT
 
             SyncSidebar();
             UpdateImageStatusText();
+            SyncSequencePanel();
+            EnsureSequenceCache();
             AddToRecentFiles(cmdLinePath);
         }
         else if (!m_loadError.empty())
@@ -405,6 +500,79 @@ void App::StartUpdateCheck()
         });
 }
 
+void App::SetPlayBenchmark(const std::wstring& outPath, int frames, int fps)
+{
+    m_playBench = true;
+    m_playBenchOut = outPath;
+    m_playBenchTarget = frames;
+    m_playBenchFps = fps;
+}
+
+void App::RecordPlayBenchSample(double ms, bool cacheHit, int64_t tEnd)
+{
+    if (m_playBenchMs.empty())
+        m_playBenchFirstTick = tEnd;
+    m_playBenchLastTick = tEnd;
+    m_playBenchMs.push_back(ms);
+    m_playBenchHit.push_back(cacheHit);
+
+    if (static_cast<int>(m_playBenchMs.size()) >= m_playBenchTarget)
+    {
+        WritePlayBenchReport();
+        PostQuitMessage(0);
+    }
+}
+
+void App::WritePlayBenchReport()
+{
+    int seqLen = IsSequenceTab() ? m_openTabs[m_activeTab].sequence.FrameCount() : 0;
+    int n = static_cast<int>(m_playBenchMs.size());
+
+    auto stats = [&](int lo, int hi, double& median, double& maxv, int& misses)
+    {
+        std::vector<double> v;
+        misses = 0;
+        for (int i = lo; i < hi && i < n; ++i)
+        {
+            v.push_back(m_playBenchMs[i]);
+            if (!m_playBenchHit[i])
+                misses++;
+        }
+        if (v.empty())
+        {
+            median = maxv = 0;
+            return;
+        }
+        std::sort(v.begin(), v.end());
+        median = v[v.size() / 2];
+        maxv = v.back();
+    };
+
+    double m1 = 0, x1 = 0, mr = 0, xr = 0;
+    int miss1 = 0, missR = 0;
+    int loop1End = (seqLen > 0 && seqLen < n) ? seqLen : n;
+    stats(0, loop1End, m1, x1, miss1);
+    stats(loop1End, n, mr, xr, missR);
+
+    double wallMs = m_timing->MsBetween(m_playBenchFirstTick, m_playBenchLastTick);
+    double fps = (wallMs > 0 && n > 1) ? (n - 1) * 1000.0 / wallMs : 0.0;
+
+    FILE* f = _wfopen(m_playBenchOut.c_str(), L"w");
+    if (!f)
+        return;
+    fprintf(f, "{\n");
+    fprintf(f, "  \"frames_played\": %d,\n", n);
+    fprintf(f, "  \"sequence_length\": %d,\n", seqLen);
+    fprintf(f, "  \"target_fps\": %d,\n", m_playBenchFps);
+    fprintf(f, "  \"effective_fps\": %.2f,\n", fps);
+    fprintf(f, "  \"first_loop\":  { \"frames\": %d, \"median_ms\": %.1f, \"max_ms\": %.1f, \"cache_misses\": %d },\n",
+            loop1End, m1, x1, miss1);
+    fprintf(f, "  \"later_loops\": { \"frames\": %d, \"median_ms\": %.1f, \"max_ms\": %.1f, \"cache_misses\": %d }\n",
+            n - loop1End, mr, xr, missR);
+    fprintf(f, "}\n");
+    fclose(f);
+}
+
 int App::Run()
 {
     Render();
@@ -418,6 +586,13 @@ int App::Run()
     // Smoke test: one frame rendered successfully — exit immediately.
     if (m_smokeTest)
         return 0;
+
+    // Headless playback benchmark: kick off playback from frame 1 at the target fps.
+    if (m_playBench && IsSequenceTab())
+    {
+        m_window.GetSidebar().SetFps(m_playBenchFps);
+        m_window.GetSidebar().TogglePlayback();
+    }
 
     MSG msg = {};
     while (true)
@@ -461,6 +636,24 @@ int App::Run()
             Render();
             m_needsRedraw = false;
         }
+        else if (m_histogramDirty)
+        {
+            // Sequence stepping/playback deferred the histogram (a ~150ms recompute
+            // that would otherwise stutter navigation). Only recompute once
+            // navigation has been quiet for a moment; otherwise sleep until then
+            // (or until input arrives) so playback ticks aren't blocked.
+            constexpr double kQuietMs = 250.0;
+            double sinceNav = m_timing->MsSince(m_lastNavTick);
+            if (sinceNav < 0.0 || sinceNav >= kQuietMs)
+            {
+                RecomputeHistogramIfDirty();
+            }
+            else
+            {
+                DWORD waitMs = static_cast<DWORD>(kQuietMs - sinceNav) + 5;
+                MsgWaitForMultipleObjectsEx(0, nullptr, waitMs, QS_ALLINPUT, MWMO_INPUTAVAILABLE);
+            }
+        }
         else
         {
             WaitMessage();
@@ -494,7 +687,22 @@ void App::Render()
         ViewportCB vp = m_viewport.ToViewportCB();
         vp.showGrid = m_showGrid ? 1 : 0;
         vp.displayMode = m_displayMode;
-        PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+
+        // Compare mode parameters
+        vp.compareMode = static_cast<int>(m_compareMode);
+        vp.splitX = m_splitX * m_viewport.clientWidth;
+        vp.compareGain = m_compareGain;
+
+        if (m_compareMode != CompareMode::Off && m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+        {
+            PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
+            PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
+        }
+        else
+        {
+            PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+        }
+
         m_renderer.RenderImage(vp);
     }
 
@@ -521,8 +729,21 @@ void App::OnCommand(int commandId)
     case IDM_FILE_RELOAD:
         if (m_activeTab >= 0)
         {
+            // For a sequence, drop every cached frame (all layers) so the changed
+            // file on disk is re-decoded rather than served stale during playback.
+            const bool seqTab = IsSequenceTab();
+            if (seqTab)
+            {
+                m_seqCache.RemoveSequence(SequenceCacheId(m_openTabs[m_activeTab].sequence));
+                m_activeCacheId.clear(); // force EnsureSequenceCache to re-activate + re-warm
+            }
             LoadFile(m_openTabs[m_activeTab].path);
             m_openTabs[m_activeTab].exposure = m_viewport.exposure;
+            if (seqTab)
+            {
+                EnsureSequenceCache();                                                  // re-warm from disk
+                m_seqCache.Put(m_openTabs[m_activeTab].sequence.currentIndex, m_image); // seed the reloaded frame
+            }
         }
         break;
 
@@ -634,6 +855,32 @@ void App::OnCommand(int commandId)
         m_window.ToggleFullscreen();
         break;
 
+    case IDM_COMPARE_SPLIT:
+        SetCompareMode(CompareMode::Split);
+        break;
+
+    case IDM_COMPARE_DIFF:
+        SetCompareMode(CompareMode::Difference);
+        break;
+
+    case IDM_COMPARE_OFF:
+        ExitCompare();
+        break;
+
+    case IDM_COMPARE_SWAP:
+        SwapCompareSources();
+        break;
+
+    case IDM_COMPARE_SET_A:
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(0);
+        break;
+
+    case IDM_COMPARE_SET_B:
+        if (m_compareMode != CompareMode::Off)
+            SetCompareFocus(1);
+        break;
+
     case IDM_HELP_ABOUT:
     {
         HICON bigIcon = static_cast<HICON>(
@@ -706,7 +953,21 @@ void App::OnResize(int width, int height)
             ViewportCB vp = m_viewport.ToViewportCB();
             vp.showGrid = m_showGrid ? 1 : 0;
             vp.displayMode = m_displayMode;
-            PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+
+            vp.compareMode = static_cast<int>(m_compareMode);
+            vp.splitX = m_splitX * m_viewport.clientWidth;
+            vp.compareGain = m_compareGain;
+
+            if (m_compareMode != CompareMode::Off && m_compareBase.image.IsLoaded() && m_compareBlend.image.IsLoaded())
+            {
+                PackColorMatrix(m_compareBase.image.colorMatrix, vp.colorMatrix);
+                PackColorMatrix(m_compareBlend.image.colorMatrix, vp.colorMatrixB);
+            }
+            else
+            {
+                PackColorMatrix(m_image.colorMatrix, vp.colorMatrix);
+            }
+
             m_renderer.RenderImage(vp);
         }
         m_renderer.EndFrame(false);
@@ -714,38 +975,14 @@ void App::OnResize(int width, int height)
     }
 }
 
-bool App::LoadFile(const std::wstring& path)
+bool App::LoadFile(const std::wstring& path, bool isSequenceStep)
 {
     std::string errorMsg;
     ImageData newImage;
 
     if (ImageLoader::LoadEXR(path, newImage, errorMsg))
     {
-        m_image = std::move(newImage);
-        m_renderer.UploadImage(m_image);
-        m_histogram = HistogramComputer::Compute(m_image);
-
-        // Scan layers (metadata only)
-        std::string layerError;
-        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
-        m_activeLayer = 0;
-
-        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
-        m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
-        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
-
-        m_viewport.imageWidth = static_cast<float>(m_image.width);
-        m_viewport.imageHeight = static_cast<float>(m_image.height);
-        m_viewport.exposure = m_histogram.autoExposure;
-        m_viewport.FitToWindow();
-
-        wchar_t title[MAX_PATH + 16];
-        swprintf_s(title, L"EXRay - %s", path.c_str());
-        m_window.SetTitle(title);
-
-        SyncSidebar();
-        UpdateImageStatusText();
-        m_needsRedraw = true;
+        ApplyLoadedImage(std::move(newImage), path, isSequenceStep);
         return true;
     }
     else
@@ -761,62 +998,240 @@ bool App::LoadFile(const std::wstring& path)
     }
 }
 
+// Install an already-decoded image as the current frame: GPU upload, histogram /
+// layer handling, viewport adjustment and UI refresh. Shared by the synchronous
+// decode path (LoadFile) and the prefetch-cache hit path (NavigateSequence).
+void App::ApplyLoadedImage(ImageData&& img, const std::wstring& path, bool isSequenceStep)
+{
+    m_image = std::move(img);
+    m_renderer.UploadImage(m_image);
+
+    // During sequence stepping, exposure/zoom are locked and the layer
+    // structure is identical across frames, so skip the histogram recompute
+    // (deferred to idle) and the redundant per-frame layer rescan.
+    if (isSequenceStep)
+    {
+        m_histogramDirty = true;
+        // Keep the selected layer across frames (NavigateSequence loaded the right
+        // layer); the layer structure is identical from frame to frame.
+    }
+    else
+    {
+        m_histogram = HistogramComputer::Compute(m_image);
+
+        // Scan layers (metadata only)
+        std::string layerError;
+        ImageLoader::ScanLayers(path, m_layerInfo, layerError);
+        m_activeLayer = 0;
+    }
+
+    // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+    m_displayMode = AutoSelectDisplayMode(kDisplayModeRGB, m_image.alphaAllZero);
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+
+    // A full load (new image, or a sequence's first frame) fits + auto-exposes;
+    // a sequence frame step preserves exposure/zoom/pan. Gate on isSequenceStep,
+    // not IsSequenceTab() — during OpenFile the new tab isn't active yet, so
+    // IsSequenceTab() would wrongly reflect the previous tab.
+    if (m_compareMode == CompareMode::Off && !isSequenceStep)
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = m_histogram.autoExposure;
+        m_viewport.FitToWindow();
+    }
+    else if (m_compareMode == CompareMode::Off && isSequenceStep)
+    {
+        // Sequence: update dimensions, keep exposure/zoom, adjust pan to keep center fixed
+        float newW = static_cast<float>(m_image.width);
+        float newH = static_cast<float>(m_image.height);
+        if (newW != m_viewport.imageWidth || newH != m_viewport.imageHeight)
+        {
+            float cx = m_viewport.panX + m_viewport.imageWidth * m_viewport.zoom * 0.5f;
+            float cy = m_viewport.panY + m_viewport.imageHeight * m_viewport.zoom * 0.5f;
+            m_viewport.imageWidth = newW;
+            m_viewport.imageHeight = newH;
+            m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+            m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+        }
+    }
+
+    // A full (non-sequence) load rescanned the layers — reset per-layer exposures,
+    // seeding the default layer with the exposure just applied.
+    if (!isSequenceStep)
+        ResetLayerExposures();
+
+    wchar_t title[MAX_PATH + 16];
+    swprintf_s(title, L"EXRay - %s", path.c_str());
+    m_window.SetTitle(title);
+
+    SyncSidebar();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::ResetLayerExposures()
+{
+    m_layerExposure.assign(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
+    if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
+        m_layerExposure[m_activeLayer] = m_viewport.exposure;
+}
+
 bool App::LoadLayer(int layerIndex)
 {
     if (m_activeTab < 0 || layerIndex < 0 || layerIndex >= static_cast<int>(m_layerInfo.layers.size()))
         return false;
 
-    std::string errorMsg;
-    ImageData newImage;
     const std::wstring& path = m_openTabs[m_activeTab].path;
+    const int prevLayer = m_activeLayer;
 
-    if (ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], newImage, errorMsg))
+    // Point the prefetch cache at the target layer first, so we can serve the
+    // current frame from RAM if it's already warm (skips a ~125ms decode). For a
+    // non-sequence tab the cache is inactive and TryGet just misses.
+    m_activeLayer = layerIndex;
+    EnsureSequenceCache();
+    const int frameIdx = IsSequenceTab() ? m_openTabs[m_activeTab].sequence.currentIndex : -1;
+
+    ImageData img;
+    bool fromCache = (frameIdx >= 0 && m_seqCache.TryGet(frameIdx, img));
+    if (!fromCache)
     {
-        // When switching between mip levels of the same layer, scale zoom
-        // so the image occupies the same screen space
-        const auto& oldLayer = m_layerInfo.layers[m_activeLayer];
-        const auto& newLayer = m_layerInfo.layers[layerIndex];
-        bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
-                           oldLayer.partIndex == newLayer.partIndex;
+        std::string errorMsg;
+        if (!ImageLoader::LoadEXRLayer(path, m_layerInfo.layers[layerIndex], img, errorMsg))
+        {
+            m_activeLayer = prevLayer; // revert
+            if (!m_smokeTest)
+            {
+                int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
+                std::wstring wideError(len, L'\0');
+                MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
+                MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
+            }
+            return false;
+        }
+        if (frameIdx >= 0)
+            m_seqCache.Put(frameIdx, img); // seed so the worker doesn't redecode it
+    }
 
-        float oldWidth = m_viewport.imageWidth;
+    // When switching between mip levels of the same layer, scale zoom so the
+    // image occupies the same screen space.
+    const auto& oldLayer = m_layerInfo.layers[prevLayer];
+    const auto& newLayer = m_layerInfo.layers[layerIndex];
+    bool isMipSwitch = oldLayer.numMipLevels > 1 && newLayer.numMipLevels > 1 && oldLayer.name == newLayer.name &&
+                       oldLayer.partIndex == newLayer.partIndex;
+    float oldWidth = m_viewport.imageWidth;
 
-        m_image = std::move(newImage);
-        m_renderer.UploadImage(m_image);
+    // Save the outgoing layer's exposure before switching.
+    if (m_layerExposure.size() != m_layerInfo.layers.size())
+        m_layerExposure.resize(m_layerInfo.layers.size(), std::numeric_limits<float>::quiet_NaN());
+    if (prevLayer >= 0 && prevLayer < static_cast<int>(m_layerExposure.size()))
+        m_layerExposure[prevLayer] = m_viewport.exposure;
+
+    m_image = std::move(img);
+    m_renderer.UploadImage(m_image);
+    // m_activeLayer is already layerIndex.
+
+    // The full histogram (~200ms) is only needed up front to auto-compute a
+    // layer's exposure the first time it's viewed; otherwise defer it to idle.
+    bool firstView = (layerIndex < static_cast<int>(m_layerExposure.size())) && std::isnan(m_layerExposure[layerIndex]);
+    if (firstView)
         m_histogram = HistogramComputer::Compute(m_image);
-        m_activeLayer = layerIndex;
+    else
+        m_histogramDirty = true;
 
-        // Auto-select "RGB (ignore alpha)" when alpha is all zeros
-        m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
-        m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
+    // Auto-select "RGB (ignore alpha)" when alpha is all zeros
+    m_displayMode = AutoSelectDisplayMode(m_displayMode, m_image.alphaAllZero);
+    m_window.UpdateMenuChecks(m_showGrid, m_displayMode);
 
+    if (m_compareMode != CompareMode::Off)
+    {
+        SnapshotFocusedSource();
+        UploadCompareTextures();
+        SyncComparePanel();
+    }
+    else
+    {
         m_viewport.imageWidth = static_cast<float>(m_image.width);
         m_viewport.imageHeight = static_cast<float>(m_image.height);
 
         if (isMipSwitch && oldWidth > 0.0f)
             m_viewport.zoom = (std::min)(m_viewport.zoom * oldWidth / m_viewport.imageWidth, m_viewport.MaxZoom());
 
-        SyncSidebar();
-        UpdateImageStatusText();
-        m_needsRedraw = true;
-        return true;
+        // Restore this layer's exposure, auto-computing it the first time it's
+        // viewed (depth vs RGB need very different exposures).
+        if (layerIndex < static_cast<int>(m_layerExposure.size()))
+        {
+            if (std::isnan(m_layerExposure[layerIndex]))
+                m_layerExposure[layerIndex] = m_histogram.isValid ? m_histogram.autoExposure : m_viewport.exposure;
+            m_viewport.exposure = m_layerExposure[layerIndex];
+        }
     }
-    else if (!m_smokeTest)
-    {
-        int len = MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, nullptr, 0);
-        std::wstring wideError(len, L'\0');
-        MultiByteToWideChar(CP_UTF8, 0, errorMsg.c_str(), -1, wideError.data(), len);
-        MessageBoxW(m_window.GetHwnd(), wideError.c_str(), L"EXRay - Error", MB_ICONERROR);
-    }
-    return false;
+
+    SyncSidebar();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+    return true;
 }
 
-void App::OpenFile(const std::wstring& path)
+static std::wstring FormatSequenceTabTitle(const std::wstring& path, const SequenceInfo& seq)
 {
-    // Check if file is already open (case-insensitive)
+    const wchar_t* fn = ExtractFilename(path);
+    if (seq.frames.empty())
+        return fn;
+
+    // "render [042 / 240]" — extract base name from prefix
+    const wchar_t* prefixFn = ExtractFilename(seq.prefix);
+    std::wstring baseName = prefixFn;
+    // Remove trailing separator (. or _)
+    if (!baseName.empty() && (baseName.back() == L'.' || baseName.back() == L'_'))
+        baseName.pop_back();
+    if (baseName.empty())
+        baseName = fn;
+
+    wchar_t buf[MAX_PATH];
+    swprintf_s(buf, L"%s [%03d / %d]", baseName.c_str(), seq.CurrentFrameNumber(), seq.FrameCount());
+    return buf;
+}
+
+void App::OpenFile(const std::wstring& rawPath)
+{
+    // Trim stray surrounding whitespace/quotes. recent.txt entries and
+    // second-instance forwarding can carry a trailing space, which would corrupt
+    // the sequence suffix in DetectSequence (".exr " ≠ ".exr") and silently open
+    // the file as a single frame.
+    std::wstring path = rawPath;
+    auto trim = [](std::wstring& s)
+    {
+        size_t a = s.find_first_not_of(L" \t");
+        size_t b = s.find_last_not_of(L" \t");
+        s = (a == std::wstring::npos) ? L"" : s.substr(a, b - a + 1);
+    };
+    trim(path);
+    if (path.size() >= 2 && path.front() == L'"' && path.back() == L'"')
+    {
+        path = path.substr(1, path.size() - 2);
+        trim(path);
+    }
+
+    // Detect if this file belongs to a sequence
+    SequenceInfo seq = DetectSequence(path);
+
+    // Check if file (or its sequence) is already open
     for (int i = 0; i < static_cast<int>(m_openTabs.size()); ++i)
     {
-        if (_wcsicmp(m_openTabs[i].path.c_str(), path.c_str()) == 0)
+        if (!seq.frames.empty() && !m_openTabs[i].sequence.frames.empty())
+        {
+            // Same sequence? Check prefix + suffix match
+            if (_wcsicmp(m_openTabs[i].sequence.prefix.c_str(), seq.prefix.c_str()) == 0 &&
+                _wcsicmp(m_openTabs[i].sequence.suffix.c_str(), seq.suffix.c_str()) == 0)
+            {
+                // Switch to this tab and navigate to the requested frame
+                SwitchToTab(i);
+                JumpToFrame(seq.CurrentFrameNumber());
+                return;
+            }
+        }
+        else if (_wcsicmp(m_openTabs[i].path.c_str(), path.c_str()) == 0)
         {
             SwitchToTab(i);
             return;
@@ -828,21 +1243,30 @@ void App::OpenFile(const std::wstring& path)
     if (!LoadFile(path))
         return;
 
-    m_openTabs.push_back({path,
-                          m_viewport.exposure,
-                          m_viewport.zoom,
-                          m_viewport.panX,
-                          m_viewport.panY,
-                          m_viewport.gamma,
-                          {},
-                          {},
-                          m_layerInfo,
-                          m_activeLayer});
+    OpenTab newTab = {
+        path, m_viewport.exposure, m_viewport.zoom, m_viewport.panX, m_viewport.panY, m_viewport.gamma, {},
+        {},   m_layerInfo,         m_activeLayer,   std::move(seq)};
+
+    std::wstring tabTitle = FormatSequenceTabTitle(path, newTab.sequence);
+    m_openTabs.push_back(std::move(newTab));
     int newIndex = static_cast<int>(m_openTabs.size()) - 1;
-    m_window.AddTab(newIndex, ExtractFilename(path));
+    m_window.AddTab(newIndex, tabTitle.c_str());
     m_activeTab = newIndex;
     m_window.SetActiveTab(m_activeTab);
+    // New tab starts with default playback settings (and stops any prior playback).
+    m_window.GetSidebar().ResetPlaybackForTab(m_openTabs[newIndex].playbackFps, m_openTabs[newIndex].loopMode);
     AddToRecentFiles(path);
+
+    // If compare mode is active, snapshot the new file as the focused source
+    if (m_compareMode != CompareMode::Off)
+    {
+        SnapshotFocusedSource();
+        UploadCompareTextures();
+        SyncComparePanel();
+    }
+
+    SyncSequencePanel();
+    EnsureSequenceCache(); // start prefetching if this is a sequence
 }
 
 void App::SwitchToTab(int index)
@@ -860,22 +1284,48 @@ void App::SwitchToTab(int index)
     m_histogram = std::move(m_openTabs[index].histogram);
     m_layerInfo = m_openTabs[index].layerInfo;
     m_activeLayer = m_openTabs[index].activeLayer;
+    m_layerExposure = m_openTabs[index].layerExposure;
     m_renderer.UploadImage(m_image);
 
-    m_viewport.imageWidth = static_cast<float>(m_image.width);
-    m_viewport.imageHeight = static_cast<float>(m_image.height);
-    m_viewport.exposure = m_openTabs[index].exposure;
-    m_viewport.zoom = m_openTabs[index].zoom;
-    m_viewport.panX = m_openTabs[index].panX;
-    m_viewport.panY = m_openTabs[index].panY;
-    m_viewport.gamma = m_openTabs[index].gamma;
+    // Restore this tab's playback settings (stops any playback from the old tab).
+    m_window.GetSidebar().ResetPlaybackForTab(m_openTabs[index].playbackFps, m_openTabs[index].loopMode);
+
+    // In compare mode, keep viewport locked to the entry dimensions
+    if (m_compareMode == CompareMode::Off)
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_viewport.exposure = m_openTabs[index].exposure;
+        m_viewport.zoom = m_openTabs[index].zoom;
+        m_viewport.panX = m_openTabs[index].panX;
+        m_viewport.panY = m_openTabs[index].panY;
+        m_viewport.gamma = m_openTabs[index].gamma;
+    }
 
     wchar_t title[MAX_PATH + 16];
     swprintf_s(title, L"EXRay - %s", m_openTabs[index].path.c_str());
     m_window.SetTitle(title);
 
+    // If compare mode is active, switching tabs updates the focused source.
+    // Snapshot directly from m_image (which was just set up above) rather than
+    // going through SnapshotFocusedSource() which calls SaveTabState() and
+    // would move m_image back into the tab, leaving it empty.
+    if (m_compareMode != CompareMode::Off)
+    {
+        CompareSource& target = (m_compareFocused == 1) ? m_compareBlend : m_compareBase;
+        target.tabIndex = m_activeTab;
+        target.layerIndex = m_activeLayer;
+        target.label = MakeSourceLabel();
+        if (m_image.IsLoaded())
+            target.image = m_image;
+        UploadCompareTextures();
+    }
+
     SyncSidebar();
+    SyncComparePanel();
+    SyncSequencePanel();
     UpdateImageStatusText();
+    EnsureSequenceCache(); // prefetch the new tab's sequence (or release the cache)
     m_needsRedraw = true;
 }
 
@@ -888,11 +1338,18 @@ void App::CloseCurrentTab()
     }
 
     int closingIndex = m_activeTab;
+    AdjustCompareAfterRemove(closingIndex);
+    if (!m_openTabs[closingIndex].sequence.frames.empty())
+        m_seqCache.Remove(SequenceCacheId(m_openTabs[closingIndex].sequence)); // free its cached frames
     m_openTabs.erase(m_openTabs.begin() + closingIndex);
     m_window.RemoveTab(closingIndex);
 
     if (m_openTabs.empty())
     {
+        // Exit compare before clearing state — snapshots reference tab data
+        if (m_compareMode != CompareMode::Off)
+            ExitCompare();
+
         m_activeTab = -1;
         m_image = ImageData{};
         m_renderer.UploadImage(m_image);
@@ -905,6 +1362,7 @@ void App::CloseCurrentTab()
         m_window.SetStatusText(1, L"");
         m_window.SetStatusText(2, L"");
         SyncSidebar();
+        EnsureSequenceCache(); // no active tab → release the prefetch cache
         m_needsRedraw = true;
     }
     else
@@ -932,6 +1390,9 @@ void App::CloseTabAtIndex(int index)
         return;
     }
 
+    AdjustCompareAfterRemove(index);
+    if (!m_openTabs[index].sequence.frames.empty())
+        m_seqCache.Remove(SequenceCacheId(m_openTabs[index].sequence)); // free its cached frames
     m_openTabs.erase(m_openTabs.begin() + index);
     m_window.RemoveTab(index);
 
@@ -953,16 +1414,466 @@ void App::SaveTabState()
         m_openTabs[m_activeTab].gamma = m_viewport.gamma;
         m_openTabs[m_activeTab].layerInfo = m_layerInfo;
         m_openTabs[m_activeTab].activeLayer = m_activeLayer;
+        // Capture the active layer's current exposure, then stow the per-layer set.
+        if (m_activeLayer >= 0 && m_activeLayer < static_cast<int>(m_layerExposure.size()))
+            m_layerExposure[m_activeLayer] = m_viewport.exposure;
+        m_openTabs[m_activeTab].layerExposure = m_layerExposure;
+        // Per-tab playback settings
+        Sidebar& sb = m_window.GetSidebar();
+        m_openTabs[m_activeTab].playbackFps = sb.GetFps();
+        m_openTabs[m_activeTab].loopMode = sb.GetLoopMode();
         if (m_image.IsLoaded())
         {
+            // Flush any histogram deferred by sequence stepping before stowing the tab.
+            if (m_histogramDirty)
+            {
+                m_histogram = HistogramComputer::Compute(m_image);
+                m_histogramDirty = false;
+            }
             m_openTabs[m_activeTab].image = std::move(m_image);
             m_openTabs[m_activeTab].histogram = std::move(m_histogram);
         }
     }
 }
 
+void App::SetCompareMode(CompareMode mode)
+{
+    if (mode == CompareMode::Off)
+    {
+        ExitCompare();
+        return;
+    }
+
+    bool wasOff = (m_compareMode == CompareMode::Off);
+    m_compareMode = mode;
+
+    if (wasOff)
+    {
+        // Entering compare — snapshot current image as both base and blend
+        m_compareFocused = 0;
+        SnapshotFocusedSource();
+        m_compareFocused = 1;
+        SnapshotFocusedSource();
+        m_compareFocused = 0; // default focus on base
+
+        // Lock viewport dimensions to the current image so zoom/pan stays
+        // stable regardless of source changes or swaps
+        m_savedImageWidth = m_viewport.imageWidth;
+        m_savedImageHeight = m_viewport.imageHeight;
+    }
+
+    UploadCompareTextures();
+    // Keep viewport locked to entry dimensions
+    m_viewport.imageWidth = m_savedImageWidth;
+    m_viewport.imageHeight = m_savedImageHeight;
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::ExitCompare()
+{
+    m_compareMode = CompareMode::Off;
+    m_compareBase = {};
+    m_compareBlend = {};
+    m_renderer.ClearCompareImage();
+
+    // Restore viewport to the live image's actual dimensions
+    if (m_image.IsLoaded())
+    {
+        m_viewport.imageWidth = static_cast<float>(m_image.width);
+        m_viewport.imageHeight = static_cast<float>(m_image.height);
+        m_renderer.UploadImage(m_image);
+    }
+
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::SwapCompareSources()
+{
+    if (m_compareMode == CompareMode::Off)
+        return;
+    std::swap(m_compareBase, m_compareBlend);
+
+    // Swap GPU textures directly (no re-upload needed)
+    m_renderer.SwapCompareImages();
+
+    // Update viewport to match new base dimensions.
+    // Scale zoom to preserve visual size, adjust pan to keep center fixed.
+    if (m_compareBase.image.IsLoaded())
+    {
+        float oldW = m_savedImageWidth;
+        float oldH = m_savedImageHeight;
+        float newW = static_cast<float>(m_compareBase.image.width);
+        float newH = static_cast<float>(m_compareBase.image.height);
+
+        float scale = oldW / newW;
+        float oldZoom = m_viewport.zoom;
+        m_viewport.zoom *= scale;
+
+        float cx = m_viewport.panX + oldW * oldZoom * 0.5f;
+        float cy = m_viewport.panY + oldH * oldZoom * 0.5f;
+        m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+        m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+
+        m_savedImageWidth = newW;
+        m_savedImageHeight = newH;
+        m_viewport.imageWidth = m_savedImageWidth;
+        m_viewport.imageHeight = m_savedImageHeight;
+        m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
+    }
+
+    SyncComparePanel();
+    UpdateImageStatusText();
+    m_needsRedraw = true;
+}
+
+void App::SetCompareFocus(int source)
+{
+    m_compareFocused = source;
+
+    // Switch to the focused source's tab so the layer list, active file,
+    // and tab bar are all in sync.
+    const CompareSource& src = (source == 1) ? m_compareBlend : m_compareBase;
+    if (src.tabIndex >= 0 && src.tabIndex < static_cast<int>(m_openTabs.size()) && src.tabIndex != m_activeTab)
+    {
+        // Temporarily exit compare to prevent SwitchToTab from auto-snapshotting
+        // (we're just navigating, not changing the source)
+        CompareMode savedMode = m_compareMode;
+        m_compareMode = CompareMode::Off;
+        SwitchToTab(src.tabIndex);
+        m_compareMode = savedMode;
+        UploadCompareTextures();
+    }
+
+    // Update the layer selection to match the source's snapshotted layer
+    if (src.tabIndex == m_activeTab)
+        m_activeLayer = src.layerIndex;
+
+    SyncSidebar();
+    SyncComparePanel();
+}
+
+void App::SnapshotFocusedSource()
+{
+    CompareSource& target = (m_compareFocused == 1) ? m_compareBlend : m_compareBase;
+    target.tabIndex = m_activeTab;
+    target.layerIndex = m_activeLayer;
+    target.label = MakeSourceLabel();
+    // Copy directly from m_image (the live working image) when available.
+    // Avoid SaveTabState() which moves m_image into the tab, creating
+    // confusing ownership state.
+    if (m_image.IsLoaded())
+        target.image = m_image;
+}
+
+void App::AdjustCompareAfterRemove(int removedIndex)
+{
+    if (m_compareMode == CompareMode::Off)
+        return;
+
+    auto adjust = [](int src, int removed) -> int
+    {
+        if (src == removed)
+            return -1;
+        if (src > removed)
+            return src - 1;
+        return src;
+    };
+
+    m_compareBase.tabIndex = adjust(m_compareBase.tabIndex, removedIndex);
+    m_compareBlend.tabIndex = adjust(m_compareBlend.tabIndex, removedIndex);
+
+    // Images are snapshotted, so they survive tab closure.
+    // Only update the tab indices for focus navigation.
+}
+
+void App::UploadCompareTextures()
+{
+    // Upload base as primary image
+    if (m_compareBase.image.IsLoaded())
+        m_renderer.UploadImage(m_compareBase.image);
+
+    // Upload blend as compare image
+    if (m_compareBlend.image.IsLoaded())
+        m_renderer.UploadCompareImage(m_compareBlend.image);
+
+    // Viewport dimensions always track the base (left) image.
+    // When base dimensions change: scale zoom to preserve visual size,
+    // then adjust pan to keep the screen center fixed.
+    if (m_compareBase.image.IsLoaded())
+    {
+        float newW = static_cast<float>(m_compareBase.image.width);
+        float newH = static_cast<float>(m_compareBase.image.height);
+        if (newW != m_savedImageWidth || newH != m_savedImageHeight)
+        {
+            // Scale zoom so the image occupies the same screen area
+            float scale = m_savedImageWidth / newW;
+            float oldZoom = m_viewport.zoom;
+            m_viewport.zoom *= scale;
+
+            // Adjust pan to keep center fixed at the new zoom
+            float cx = m_viewport.panX + m_savedImageWidth * oldZoom * 0.5f;
+            float cy = m_viewport.panY + m_savedImageHeight * oldZoom * 0.5f;
+            m_viewport.panX = cx - newW * m_viewport.zoom * 0.5f;
+            m_viewport.panY = cy - newH * m_viewport.zoom * 0.5f;
+
+            m_savedImageWidth = newW;
+            m_savedImageHeight = newH;
+        }
+    }
+    m_viewport.imageWidth = m_savedImageWidth;
+    m_viewport.imageHeight = m_savedImageHeight;
+
+    // Clamp zoom to the valid range for the new dimensions so the first
+    // scroll interaction doesn't jump due to a deferred clamp.
+    m_viewport.zoom = (std::max)(m_viewport.MinZoom(), (std::min)(m_viewport.zoom, m_viewport.MaxZoom()));
+    m_renderer.SetQuadSize(m_savedImageWidth, m_savedImageHeight);
+}
+
+size_t App::SequenceCacheBudget()
+{
+    // Manual override (MB) for testing/tuning, e.g. EXRAY_CACHE_MB=1024.
+    if (const char* env = std::getenv("EXRAY_CACHE_MB"))
+    {
+        long mb = std::atol(env);
+        if (mb > 0)
+            return static_cast<size_t>(mb) * 1024 * 1024;
+    }
+
+    // Cap the prefetch cache at a fraction of physical RAM, with a hard ceiling.
+    // A 1080p half-float frame is ~16 MB, so 6 GB holds ~370 frames.
+    constexpr size_t kHardCeiling = size_t(6) * 1024 * 1024 * 1024;
+    MEMORYSTATUSEX mem = {};
+    mem.dwLength = sizeof(mem);
+    if (GlobalMemoryStatusEx(&mem))
+    {
+        size_t half = static_cast<size_t>(mem.ullTotalPhys / 2);
+        return (std::min)(half, kHardCeiling);
+    }
+    return size_t(2) * 1024 * 1024 * 1024;
+}
+
+std::wstring App::SequenceCacheId(const SequenceInfo& seq) { return seq.prefix + L"\x1f" + seq.suffix; }
+
+void App::EnsureSequenceCache()
+{
+    if (!IsSequenceTab())
+    {
+        // Stop prefetching but keep resident frames (LRU evicts under pressure),
+        // so returning to a sequence tab finds it still warm.
+        m_seqCache.Deactivate();
+        m_activeCacheId.clear();
+        return;
+    }
+
+    const SequenceInfo& seq = m_openTabs[m_activeTab].sequence;
+    std::wstring id = SequenceCacheId(seq);
+
+    // A non-default layer gets its own cache entry, prefetched as that layer.
+    const ExrLayer* layerPtr = nullptr;
+    if (m_activeLayer > 0 && m_activeLayer < static_cast<int>(m_layerInfo.layers.size()))
+    {
+        id += L"|L" + std::to_wstring(m_activeLayer);
+        layerPtr = &m_layerInfo.layers[m_activeLayer];
+    }
+
+    if (m_activeCacheId != id)
+    {
+        m_seqCache.SetBudget(SequenceCacheBudget());
+        std::vector<std::wstring> paths;
+        paths.reserve(seq.frames.size());
+        for (const SequenceFrame& f : seq.frames)
+            paths.push_back(f.path);
+        m_seqCache.Activate(id, std::move(paths), layerPtr); // keeps this seq+layer's warm frames if cached
+        m_activeCacheId = id;
+    }
+    m_seqCache.SetFocus(seq.currentIndex);
+}
+
+void App::NavigateSequence(int delta)
+{
+    if (!IsSequenceTab())
+        return;
+
+    auto& seq = m_openTabs[m_activeTab].sequence;
+    int newIndex = seq.currentIndex + delta;
+    newIndex = (std::max)(0, (std::min)(newIndex, seq.FrameCount() - 1));
+    if (newIndex == seq.currentIndex)
+        return;
+
+    seq.currentIndex = newIndex;
+    const std::wstring framePath = seq.CurrentPath();
+
+    // Update the tab's path to the new frame
+    m_openTabs[m_activeTab].path = framePath;
+
+    const int64_t tStart = StartupTiming::Now();
+    m_lastNavTick = tStart; // defer the expensive histogram until navigation settles
+
+    // Drive the prefetch worker toward the new position and try the cache first.
+    EnsureSequenceCache();
+    m_seqCache.SetFocus(newIndex);
+
+    // Load the new frame. The cache is configured for the active layer (default
+    // RGBA or e.g. Z depth) by EnsureSequenceCache, so a hit is just a GPU upload
+    // for either; a miss decodes the right thing synchronously and seeds the cache.
+    bool loaded;
+    bool cacheHit = false;
+    const bool useLayer = (m_activeLayer > 0 && m_activeLayer < static_cast<int>(m_layerInfo.layers.size()));
+
+    ImageData cached;
+    if (m_seqCache.TryGet(newIndex, cached))
+    {
+        ApplyLoadedImage(std::move(cached), framePath, /*isSequenceStep=*/true);
+        loaded = true;
+        cacheHit = true;
+    }
+    else if (useLayer)
+    {
+        std::string err;
+        ImageData img;
+        if (ImageLoader::LoadEXRLayer(framePath, m_layerInfo.layers[m_activeLayer], img, err))
+        {
+            ApplyLoadedImage(std::move(img), framePath, /*isSequenceStep=*/true);
+            loaded = true;
+            m_seqCache.Put(newIndex, m_image);
+        }
+        else
+        {
+            // Layer missing in this frame → fall back to default RGBA (no Put;
+            // the active cache is the layer cache).
+            m_activeLayer = 0;
+            loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+        }
+    }
+    else
+    {
+        loaded = LoadFile(framePath, /*isSequenceStep=*/true);
+        if (loaded)
+            m_seqCache.Put(newIndex, m_image);
+    }
+    if (loaded)
+    {
+        // Update tab title in place (no remove/add to avoid layout flicker)
+        std::wstring title = FormatSequenceTabTitle(framePath, seq);
+        m_window.UpdateTabTitle(m_activeTab, title.c_str());
+
+        // Update window title
+        wchar_t windowTitle[MAX_PATH + 16];
+        swprintf_s(windowTitle, L"EXRay - %s", framePath.c_str());
+        m_window.SetTitle(windowTitle);
+
+        // In compare mode, update the focused source with the new frame
+        if (m_compareMode != CompareMode::Off)
+        {
+            SnapshotFocusedSource();
+            UploadCompareTextures();
+            SyncComparePanel();
+        }
+
+        // Render immediately (within this input handler) so the frame appears now,
+        // rather than after a message-loop round trip.
+        Render();
+        m_needsRedraw = false;
+
+        if (m_playBench)
+        {
+            const int64_t tEnd = StartupTiming::Now();
+            RecordPlayBenchSample(m_timing->MsBetween(tStart, tEnd), cacheHit, tEnd);
+        }
+    }
+
+    SyncSequencePanel();
+}
+
+void App::RecomputeHistogramIfDirty()
+{
+    if (!m_histogramDirty)
+        return;
+    m_histogramDirty = false;
+    if (m_image.IsLoaded())
+    {
+        m_histogram = HistogramComputer::Compute(m_image);
+        SyncSidebar();
+        m_needsRedraw = true;
+    }
+}
+
+void App::JumpToFrame(int frameNumber)
+{
+    if (!IsSequenceTab())
+        return;
+
+    auto& seq = m_openTabs[m_activeTab].sequence;
+    int newIndex = seq.FindNearest(frameNumber);
+    if (newIndex < 0 || newIndex == seq.currentIndex)
+        return;
+
+    int delta = newIndex - seq.currentIndex;
+    NavigateSequence(delta);
+}
+
+void App::SyncSequencePanel()
+{
+    // TODO: wire to sidebar once sequence panel is built
+    Sidebar& sb = m_window.GetSidebar();
+    if (IsSequenceTab())
+    {
+        auto& seq = m_openTabs[m_activeTab].sequence;
+        sb.SetSequenceState(seq.currentIndex, seq.CurrentFrameNumber(), seq.FrameCount());
+    }
+    else
+    {
+        sb.ClearSequenceState();
+    }
+}
+
+std::wstring App::MakeSourceLabel() const
+{
+    if (m_activeTab < 0 || m_activeTab >= static_cast<int>(m_openTabs.size()))
+        return L"(none)";
+
+    const auto& tab = m_openTabs[m_activeTab];
+    std::wstring label = ExtractFilename(tab.path);
+
+    // Append layer label (same format as the sidebar layer list)
+    int layer = m_activeLayer;
+    if (layer >= 0 && layer < static_cast<int>(m_layerInfo.layers.size()) && m_layerInfo.layers.size() > 1)
+    {
+        label += L" - ";
+        label += FormatLayerLabel(m_layerInfo.layers[layer]);
+    }
+    return label;
+}
+
+void App::SyncComparePanel()
+{
+    Sidebar& sb = m_window.GetSidebar();
+    if (m_compareMode == CompareMode::Off)
+    {
+        sb.ClearCompareState();
+        return;
+    }
+
+    sb.SetCompareState(static_cast<int>(m_compareMode), m_compareBase.label.c_str(), m_compareBlend.label.c_str(),
+                       m_compareFocused);
+}
+
 void App::UpdateImageStatusText()
 {
+    // Compare mode: sidebar handles detailed state, status bar just shows mode
+    if (m_compareMode != CompareMode::Off)
+    {
+        static const wchar_t* kModeNames[] = {L"", L"Split", L"Difference", L"Add", L"Over"};
+        int idx = static_cast<int>(m_compareMode);
+        if (idx >= 1 && idx <= 4)
+            m_window.SetStatusText(2, (std::wstring(L" Compare: ") + kModeNames[idx]).c_str());
+        return;
+    }
+
     if (!m_image.IsLoaded())
         return;
 
@@ -1052,14 +1963,33 @@ void App::LoadRecentFiles()
             start++;
         firstLine = false;
 
-        // Strip trailing newline/carriage return
+        // Strip trailing newline/carriage return and stray whitespace
         size_t len = wcslen(start);
-        while (len > 0 && (start[len - 1] == L'\n' || start[len - 1] == L'\r'))
+        while (len > 0 && (start[len - 1] == L'\n' || start[len - 1] == L'\r' || start[len - 1] == L' ' ||
+                           start[len - 1] == L'\t'))
             start[--len] = L'\0';
         if (len > 0)
             m_recentFiles.push_back(start);
     }
     fclose(f);
+
+    // Collapse multiple frames of the same sequence into one entry (keep the
+    // first/most-recent), in case the file predates per-sequence dedup.
+    std::vector<std::wstring> deduped;
+    for (const std::wstring& e : m_recentFiles)
+    {
+        std::wstring key = SequenceKeyForPath(e);
+        bool seen = false;
+        for (const std::wstring& d : deduped)
+            if (_wcsicmp(SequenceKeyForPath(d).c_str(), key.c_str()) == 0)
+            {
+                seen = true;
+                break;
+            }
+        if (!seen)
+            deduped.push_back(e);
+    }
+    m_recentFiles = std::move(deduped);
 
     m_window.UpdateRecentMenu(m_recentFiles);
 }
@@ -1142,13 +2072,36 @@ void App::SavePreferences()
     fclose(f);
 }
 
+// Sequence identity of a path: the directory + filename with the trailing frame
+// number removed (e.g. "…/render.0042.exr" → "…/render.\x1f.exr"). Frames of the
+// same sequence share a key; a file with no trailing number is its own key. Used
+// to keep one Recent entry per sequence instead of one per opened frame.
+static std::wstring SequenceKeyForPath(const std::wstring& path)
+{
+    size_t sep = path.find_last_of(L"\\/");
+    std::wstring dir = (sep == std::wstring::npos) ? std::wstring() : path.substr(0, sep + 1);
+    std::wstring filename = (sep == std::wstring::npos) ? path : path.substr(sep + 1);
+
+    size_t dotPos = filename.find_last_of(L'.');
+    if (dotPos == std::wstring::npos)
+        dotPos = filename.size();
+    size_t end = dotPos;
+    while (end > 0 && filename[end - 1] >= L'0' && filename[end - 1] <= L'9')
+        end--;
+    if (end == dotPos)
+        return path; // no trailing digit group — not a sequence frame
+
+    return dir + filename.substr(0, end) + L"\x1f" + filename.substr(dotPos);
+}
+
 void App::AddToRecentFiles(std::wstring path)
 {
-    // Remove if already present (case-insensitive, since Windows paths are case-insensitive)
-    // Note: path is taken by value because callers may pass m_recentFiles[i],
-    // and remove_if would corrupt a reference into the vector being modified.
-    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(), [&path](const std::wstring& entry)
-                                       { return _wcsicmp(entry.c_str(), path.c_str()) == 0; }),
+    // Remove any existing entry for the same file OR the same sequence (so a
+    // sequence appears once, not once per opened frame). path is by value because
+    // callers may pass m_recentFiles[i], which remove_if would otherwise invalidate.
+    std::wstring key = SequenceKeyForPath(path);
+    m_recentFiles.erase(std::remove_if(m_recentFiles.begin(), m_recentFiles.end(), [&key](const std::wstring& entry)
+                                       { return _wcsicmp(SequenceKeyForPath(entry).c_str(), key.c_str()) == 0; }),
                         m_recentFiles.end());
 
     m_recentFiles.insert(m_recentFiles.begin(), path);

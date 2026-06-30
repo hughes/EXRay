@@ -51,6 +51,10 @@ cc_binary(
         "src/test_util.h",
         "src/viewport.h",
         "src/viewport.cpp",
+        "src/sequence.h",
+        "src/sequence.cpp",
+        "src/sequence_cache.h",
+        "src/sequence_cache.cpp",
         "src/timing.h",
         "src/crash_handler.h",
         "src/update_checker.h",
@@ -82,6 +86,7 @@ cc_binary(
         "-DEFAULTLIB:advapi32.lib",
         "-DEFAULTLIB:uxtheme.lib",
         "-DEFAULTLIB:dwmapi.lib",
+        "-DEFAULTLIB:winmm.lib",
         "$(location :app_resources)",
     ],
 )
@@ -160,6 +165,7 @@ cc_test(
         "src/image.h",
     ],
     includes = ["src"],
+    deps = ["@openexr//:OpenEXR"],
 )
 
 cc_test(
@@ -167,4 +173,14 @@ cc_test(
     srcs = ["tests/channel_mapping_test.cpp"],
     includes = ["src"],
     deps = [":image_lib"],
+)
+
+cc_test(
+    name = "sequence_test",
+    srcs = [
+        "tests/sequence_test.cpp",
+        "src/sequence.h",
+        "src/sequence.cpp",
+    ],
+    includes = ["src"],
 )

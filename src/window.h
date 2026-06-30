@@ -70,6 +70,7 @@ class Window
     void AddTab(int index, const wchar_t* label);
     void RemoveTab(int index);
     void SetActiveTab(int index);
+    void UpdateTabTitle(int index, const wchar_t* label);
     int GetActiveTab() const;
     int GetTabCount() const;
 
